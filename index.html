@@ -511,17 +511,22 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
 <div class="toast" id="toast"></div>
 
 <script>
+// Harde herstart: service worker en caches wissen, dan vers laden.
+async function hardReload() {
+  try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
+  location.replace(location.pathname + "?r=" + Date.now());
+}
 // Vangnet: start de app niet, toon dan de oorzaak i.p.v. eindeloos het pulserende logo.
 window.addEventListener("error", (e) => { window.__bootErr = (e.message || "") + " (" + String(e.filename || "").split("/").pop() + ":" + (e.lineno || "") + ")"; });
 setTimeout(() => {
   if (window.__SL) return;
   const s = document.getElementById("splash");
-  s.innerHTML = '<div style="text-align:center;color:#f4eefb;font:15px Inter,sans-serif;padding:24px;max-width:340px"><p style="font-weight:700">ScreamTime kon niet starten</p><p style="color:#7c6d94;font-size:12px;word-break:break-word">' + (window.__bootErr || "onbekende fout") + '</p><button onclick="location.reload()" style="margin-top:10px;height:46px;padding:0 20px;border-radius:14px;border:0;background:linear-gradient(100deg,#ff7a3d,#ff2f78,#a238ff);color:#fff;font-weight:700">Opnieuw laden</button></div>';
+  s.innerHTML = '<div style="text-align:center;color:#f4eefb;font:15px Inter,sans-serif;padding:24px;max-width:340px"><p style="font-weight:700">ScreamTime kon niet starten</p><p style="color:#7c6d94;font-size:12px;word-break:break-word">' + (window.__bootErr || "onbekende fout") + '</p><button onclick="hardReload()" style="margin-top:10px;height:46px;padding:0 20px;border-radius:14px;border:0;background:linear-gradient(100deg,#ff7a3d,#ff2f78,#a238ff);color:#fff;font-weight:700">Opnieuw laden</button></div>';
 }, 6000);
 </script>
-<script src="engine.js"></script>
-<script src="sources.js"></script>
-<script src="app.js"></script>
+<script src="engine.js?v=123"></script>
+<script src="sources.js?v=123"></script>
+<script src="app.js?v=123"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>
