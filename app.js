@@ -1,7 +1,7 @@
 /* Screamer Launch — app (UI, meet-statemachine, gauges, resultaten). */
 (function () {
   "use strict";
-  const VERSION = "1.1.0";
+  const VERSION = "1.2.0";
   const KEY = "screamerlaunch_v1";
   const E = window.Engine, SR = window.Sources;
   const $ = (s, r = document) => r.querySelector(s);
@@ -124,6 +124,7 @@
     RING.gps.push(f); while (RING.gps.length && RING.gps[0].t < f.t - 15000) RING.gps.shift();
     if (M.rec) M.rec.gps.push(f);
     measureFix(f);
+    camWatch(f);
     updateChipSoon();
   }
 
@@ -167,7 +168,7 @@
   }
 
   // ================= meten =================
-  const M = { state: "idle", rec: null, target: null, t0: null, peakV: 0, dist: 0, reachedAt: null, cand: null, greenAt: 0, redlight: false, lastRunFix: null, stillSince: null, imuLaunch: false, confirmed: false, final: null, treeTimers: [] };
+  const M = { hist: [], state: "idle", rec: null, target: null, t0: null, peakV: 0, dist: 0, reachedAt: null, cand: null, greenAt: 0, redlight: false, lastRunFix: null, stillSince: null, imuLaunch: false, confirmed: false, final: null, treeTimers: [] };
 
   function setStatus(html) { $("#status").innerHTML = html; }
   function setTree(states) { $$("#tree i").forEach((el, i) => { el.className = states[i] || ""; }); }
@@ -228,6 +229,7 @@
 
   function launch(t0, viaImu) {
     M.liveSplits = []; TEL.trace = []; TEL.peakHp = 0; CAM.finalRun = null;
+    M.hist = [];
     M.state = "running"; M.t0 = t0; M.imuLaunch = !!viaImu; M.confirmed = !viaImu; M.dist = 0; M.lastRunFix = null; M.peakV = 0;
     M.redlight = M.target.standing && t0 < M.greenAt - 30;
     clearTree();
@@ -247,12 +249,12 @@
     const T = M.target;
     switch (M.state) {
       case "arming":
-        if (f.v < 0.6) { if (M.stillSince == null) M.stillSince = f.t; else if (f.t - M.stillSince >= 1000) toReady(); }
+        if (f.v < 0.9) { if (M.stillSince == null) M.stillSince = f.t; else if (f.t - M.stillSince >= 1000) toReady(); }
         else { M.stillSince = null; setStatus("Kom tot <b>volledige stilstand</b>…"); }
         if (M.state === "arming" && M.stillSince != null) setStatus("Stilstand gedetecteerd — <b>kalibreren</b>…");
         break;
       case "ready":
-        if (f.v > 1.3) launch(SRC.prevFix && SRC.prevFix.v < 0.6 ? Math.max(SRC.prevFix.t, f.t - (f.v / 5) * 1000) : f.t - (f.v / 5) * 1000, false);
+        if (f.v > 1.5) launch(SRC.prevFix && SRC.prevFix.v < 0.6 ? Math.max(SRC.prevFix.t, f.t - (f.v / 5) * 1000) : f.t - (f.v / 5) * 1000, false);
         break;
       case "roll-wait":
         if (f.v < T.from * uf() - 2 * E.KMH) { M.state = "roll-armed"; beginRecording(); setStatus(`<b>Vol gas!</b> Timer start bij ${T.from} ${uLbl()}`); beep(900, 0.12); vibe(40); }
@@ -273,6 +275,7 @@
         else if (f.t > M.t0) M.dist += 0.5 * f.v * (f.t - M.t0) / 1000;
         M.lastRunFix = f;
         M.peakV = Math.max(M.peakV, f.v);
+        M.hist.push([f.t, f.v]); while (M.hist.length && M.hist[0][0] < f.t - 3000) M.hist.shift();
         TEL.trace.push([(f.t - M.t0) / 1000, f.v]);
         { const p = SRC.prevFix;
           if (p && T.standing) for (const [a, b] of E.SPEED_PAIRS[unit()]) {
@@ -284,11 +287,22 @@
         const hit = T.type === "speed" ? f.v >= T.to * uf() : M.dist >= T.m;
         if (hit && M.reachedAt == null) M.reachedAt = f.t;
         if (M.reachedAt != null && f.t - M.reachedAt >= 250) finish("target");
-        else if (M.reachedAt == null && M.peakV > 8 && M.peakV - f.v > 15 * E.KMH) finish("lift");
+        else if (M.reachedAt == null && liftDetected(M.hist, f, M.peakV)) finish("lift");
+        else if (M.reachedAt == null && M.peakV < 4 && f.t - M.t0 > 4000 && f.v < 1.5) { // valse start (GPS-ruis of stukje rollen)
+          M.state = "arming"; M.stillSince = null; M.rec = null; clearTree(); setStatus("Geen echte start — kom tot <b>stilstand</b>…");
+        }
         else if (f.t - M.t0 > 150000) finish("timeout");
         break;
       }
     }
+  }
+
+  // Gas los: duidelijk terugvallen t.o.v. de piek, of ruim een seconde aanhoudend vertragen.
+  function liftDetected(hist, f, peak) {
+    if (peak < 15 * E.KMH) return false;
+    if (peak - f.v >= 8 * E.KMH) return true;
+    const old = hist.find((x) => x[0] >= f.t - 1300);
+    return !!old && f.t - old[0] >= 700 && old[1] - f.v >= 3 * E.KMH && f.v > 15 * E.KMH;
   }
 
   function goPressed() {
@@ -324,7 +338,9 @@
         .concat(res.distSplits.map((s) => ({ key: s.id, label: s.label, time: s.time, at }))).sort((a, b) => a.time - b.time);
       burstAt(innerWidth / 2, innerHeight * 0.35, 120);
       [880, 1175, 1568, 2093].forEach((f, i) => beep(f, 0.18, "triangle", 0.09, i * 0.09)); vibe([60, 40, 140]);
-      CAM.autoStopT = setTimeout(() => { if (CAM.rec && S.settings.autoRec !== false) stopRec(); showResult(run, true, true); }, 4200);
+      CAM.awaitEnd = { t: performance.now(), run }; CAM.peak = M.peakV; CAM.hist = [];
+      if (reason !== "target") startOutro(); // al gas los of gestopt: meteen afronden
+      else CAM.autoStopT = setTimeout(startOutro, 25000); // vangnet
     } else showResult(run, true);
   }
 
@@ -1284,7 +1300,7 @@
   }
 
   // ================= camera-modus =================
-  const CAM = { on: false, stream: null, rec: null, chunks: [], recStart: 0, facing: "environment", lastVideo: null, finalRun: null, finalAt: 0, autoStopT: null, gCv: document.createElement("canvas"), W: 0, H: 0 };
+  const CAM = { awaitEnd: null, outro: null, peak: 0, hist: [], moved: false, stillSince: null, on: false, stream: null, rec: null, chunks: [], recStart: 0, facing: "environment", lastVideo: null, finalRun: null, finalAt: 0, autoStopT: null, gCv: document.createElement("canvas"), W: 0, H: 0 };
   const camCv = $("#camCanvas"), camCtx = camCv.getContext("2d"), camVid = $("#camVideo");
   function sizeCam() {
     if (CAM.rec) return; // tijdens opname niet van formaat wisselen
@@ -1309,6 +1325,7 @@
     try { await startCamStream(); } catch (e) { toast("Camera niet beschikbaar — " + (e.name === "NotAllowedError" ? "sta cameratoegang toe" : e.message), 4000); }
   }
   function closeCam() {
+    CAM.awaitEnd = null; CAM.outro = null; clearTimeout(CAM.autoStopT);
     if (CAM.rec) stopRec();
     CAM.on = false; $("#cam").classList.remove("open");
     if (CAM.stream) CAM.stream.getTracks().forEach((t) => t.stop()); CAM.stream = null;
@@ -1336,6 +1353,32 @@
     CAM.rec.start(1000); $("#camRec").classList.add("on"); $("#camSave").hidden = true; vibe(30);
   }
   function stopRec() { if (CAM.rec && CAM.rec.state !== "inactive") CAM.rec.stop(); clearTimeout(CAM.autoStopT); }
+  // Na de finish filmt de camera door tot je gas los laat of stilstaat, toont dan 3 s de uitslag en stopt.
+  function startOutro() {
+    if (!CAM.awaitEnd || CAM.outro) return;
+    clearTimeout(CAM.autoStopT);
+    CAM.outro = performance.now();
+    CAM.autoStopT = setTimeout(endCamRun, 3000);
+  }
+  function endCamRun() {
+    const a = CAM.awaitEnd; CAM.awaitEnd = null; CAM.outro = null; clearTimeout(CAM.autoStopT);
+    if (CAM.rec) stopRec();
+    if (a && CAM.on) showResult(a.run, true, true);
+  }
+  function camWatch(f) {
+    if (!CAM.on) return;
+    if (CAM.awaitEnd && !CAM.outro) {
+      CAM.peak = Math.max(CAM.peak, f.v);
+      CAM.hist.push([f.t, f.v]); while (CAM.hist.length && CAM.hist[0][0] < f.t - 3000) CAM.hist.shift();
+      if (f.v < 3 * E.KMH || liftDetected(CAM.hist, f, CAM.peak)) startOutro();
+    } else if (CAM.rec && M.state === "idle" && !CAM.awaitEnd) { // handmatige opname: stoppen bij stilstand na een rit
+      if (f.v > 20 * E.KMH) CAM.moved = true;
+      if (CAM.moved && f.v < 3 * E.KMH) {
+        if (CAM.stillSince == null) CAM.stillSince = f.t;
+        else if (f.t - CAM.stillSince > 2500) { stopRec(); CAM.moved = false; CAM.stillSince = null; toast("Stilstand — opname gestopt"); }
+      } else CAM.stillSince = null;
+    }
+  }
   async function saveVideo() {
     const v = CAM.lastVideo; if (!v) return;
     const file = new File([v.blob], v.name, { type: v.type });
@@ -1350,6 +1393,7 @@
   $("#camRec").addEventListener("click", () => { unlockAudio(); if (CAM.rec) stopRec(); else startRec(); });
   $("#camAuto").addEventListener("click", () => { S.settings.autoRec = S.settings.autoRec === false; save(); $("#camAuto").classList.toggle("on", S.settings.autoRec !== false); toast(S.settings.autoRec ? "Auto-opname aan: filmt vanaf START tot na de finish" : "Auto-opname uit"); });
   $("#camGo").addEventListener("click", () => {
+    if (CAM.awaitEnd) { const a = CAM.awaitEnd; CAM.awaitEnd = null; CAM.outro = null; clearTimeout(CAM.autoStopT); if (CAM.rec) stopRec(); void a; }
     if (M.state === "idle" && S.settings.autoRec !== false && !CAM.rec && CAM.stream) startRec();
     goPressed();
   });
@@ -1420,7 +1464,7 @@
     const bhS = u * 5.4, gapS = u * 1.2, y0S = H * 0.2;
     const nFit = Math.max(1, Math.floor(((port ? H * 0.5 : by - u * 2) - y0S) / (bhS + gapS)));
     const spl = (M.liveSplits || []).slice(-Math.min(6, nFit));
-    const cardUp = CAM.finalRun && now - CAM.finalAt < 4500;
+    const cardUp = CAM.finalRun && (now - CAM.finalAt < 4500 || !!CAM.outro);
     if (spl.length && !cardUp) {
       const bw = u * 30, bh = bhS, x0 = W - pad - bw, y0 = y0S;
       spl.forEach((s, i) => {
@@ -1457,8 +1501,8 @@
     ctx.fillStyle = tg; ctx.shadowColor = "rgba(255,47,120,.8)"; ctx.shadowBlur = u * 3;
     ctx.fillText(tEl.toFixed(2), cx, ty); ctx.shadowBlur = 0;
     ctx.font = `800 ${u * 2.2}px Inter, sans-serif`; ctx.fillStyle = "rgba(244,238,251,.75)";
-    const stTxt = { idle: "KLAAR VOOR START", arming: "STILSTAAN…", ready: "WACHT OP GROEN", running: "GAS!", "roll-wait": "RIJD ONDER " + (T.from || ""), "roll-armed": "VOL GAS BIJ " + (T.from || "") }[M.state] || "";
-    ctx.fillText(stTxt.split("").join(" "), cx, ty + u * 3.8);
+    const stTxt = CAM.outro ? "OPNAME STOPT" : CAM.awaitEnd ? "FINISH ✓  FILMT TOT GAS LOS" : { idle: "KLAAR VOOR START", arming: "STILSTAAN…", ready: "WACHT OP GROEN", running: "GAS!", "roll-wait": "RIJD ONDER " + (T.from || ""), "roll-armed": "VOL GAS BIJ " + (T.from || "") }[M.state] || "";
+    ctx.fillText(stTxt.split("").join(" ").replace(/ {3}/g, "   "), cx, ty + u * 3.8);
     const lights = $$("#tree i").map((el) => el.className);
     if (M.state === "ready" || M.state === "running") lights.forEach((c, i) => {
       if (i > 4) return;
@@ -1487,7 +1531,7 @@
       ctx.strokeStyle = "#ff2f78"; ctx.lineWidth = u * 0.5; ctx.shadowColor = "#ff2f78"; ctx.shadowBlur = u * 2; ctx.stroke(); ctx.shadowBlur = 0;
     }
     // resultaatkaart na de finish (komt mee in de video)
-    if (CAM.finalRun && now - CAM.finalAt < 4500) {
+    if (cardUp) {
       const r = CAM.finalRun, p = r.primary, k = Math.min(1, (now - CAM.finalAt) / 350);
       ctx.globalAlpha = k;
       const pw = Math.min(W * 0.86, u * 80), ph = u * 34, px = (W - pw) / 2, py = H * (port ? 0.26 : 0.18);
@@ -1534,6 +1578,22 @@
     else if (M.state === "idle" && (S.settings.source === "phone" || S.settings.source === "sim")) stopSource();
   });
   window.addEventListener("resize", sizeGauge);
+
+  // ================= installeren als app =================
+  const isStandalone = () => matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true;
+  let installEvt = null;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; if (!isStandalone()) $("#installBar").hidden = false; });
+  window.addEventListener("appinstalled", () => { $("#installBar").hidden = true; toast("ScreamTime is geïnstalleerd — open hem vanaf je startscherm", 4000); });
+  $("#installBtn").addEventListener("click", async () => {
+    if (installEvt) { installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if (r && r.outcome === "accepted") $("#installBar").hidden = true; installEvt = null; return; }
+    openSheet(`<h2>Installeer als app</h2><div class="card about">
+      <p><b style="color:var(--ink)">1.</b> Tik in Chrome rechtsboven op <b style="color:var(--ink)">⋮</b></p>
+      <p><b style="color:var(--ink)">2.</b> Kies <b style="color:var(--ink)">App installeren</b> (of <i>Installeren</i>) — níet 'Snelkoppeling toevoegen'.</p>
+      <p><b style="color:var(--ink)">3.</b> Open ScreamTime vanaf je startscherm: volledig scherm, zonder adresbalk.</p>
+      <p>Staat er nog een oude snelkoppeling of de oude link (…/screamerlaunch) op je startscherm? Verwijder die eerst.</p></div>`);
+  });
+  $("#installX").addEventListener("click", () => { $("#installBar").hidden = true; });
+  if (!isStandalone()) setTimeout(() => { $("#installBar").hidden = false; }, 1200);
 
   // ================= start =================
   renderAll();
