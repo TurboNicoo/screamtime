@@ -1,7 +1,7 @@
 /* Screamer Launch — app (UI, meet-statemachine, gauges, resultaten). */
 (function () {
   "use strict";
-  const VERSION = "1.2.3";
+  const VERSION = "1.3.1";
   const KEY = "screamerlaunch_v1";
   const E = window.Engine, SR = window.Sources;
   const $ = (s, r = document) => r.querySelector(s);
@@ -161,7 +161,7 @@
     if (k === "sim") { dot.classList.add("sim"); lbl = "DEMO"; }
     else if (SRC.status.needConnect) lbl = base + " · VERBIND";
     else if (SRC.lastFix && !SRC.nofix) { dot.classList.add(SRC.acc != null && SRC.acc > 15 ? "warn" : "ok"); if (SRC.hz > 0.3) lbl = `${base} ${SRC.hz >= 9.5 ? Math.round(SRC.hz) : SRC.hz.toFixed(1).replace(".0", "")} Hz`; }
-    $("#gpsLbl").textContent = lbl;
+    $("#gpsLbl").textContent = innerWidth < 400 ? lbl.replace(/^(GPS|USB|BLE) (?=\d)/, "") : lbl;
     $("#demoTag").style.display = k === "sim" ? "block" : "none";
     const live = $("#gnssLive");
     if (live) live.textContent = SRC.lastFix && !SRC.nofix ? `Live: ${SRC.hz.toFixed(1)} Hz${SRC.sats != null ? " · " + SRC.sats + " sat" : ""}${SRC.acc != null ? " · ±" + SRC.acc.toFixed(1) + " m" : ""}` : (SRC.status.needConnect ? "Niet verbonden" : "Wachten op GPS-fix…");
@@ -187,8 +187,8 @@
     requestWake();
     setGo(true);
     if (M.target.standing) {
-      M.state = "arming";
-      setStatus(SRC.lastFix ? "Kom tot <b>volledige stilstand</b>…" : "Wachten op <b>GPS-signaal</b>…");
+      M.state = "arming"; M.stillWhy = "move"; M.lastStatus = ""; M.abortMsgUntil = 0; M.creepSince = null;
+      armingStatus(performance.now());
     } else {
       M.state = "roll-wait";
       setStatus(`Rijd <b>onder ${M.target.from} ${uLbl()}</b>`);
@@ -211,7 +211,8 @@
     // zwaartekracht vastleggen voor apparaten zonder lineaire versnelling
     const r = RING.imu.slice(-30);
     if (r.length && r[0].lin === false) { const n = r.length; M.grav = { x: r.reduce((s, a) => s + a.x, 0) / n, y: r.reduce((s, a) => s + a.y, 0) / n, z: r.reduce((s, a) => s + a.z, 0) / n }; }
-    setStatus("Klaar… <b>wacht op groen</b>");
+    M.creepSince = null;
+    setStatus("Stilstand bevestigd — <b>wacht op groen</b>"); beep(520, 0.08);
     const seq = [["amber"], ["amber", "amber"], ["amber", "amber", "amber"]];
     seq.forEach((st, i) => M.treeTimers.push(setTimeout(() => { if (M.state !== "ready") return; setTree(st); beep(640, 0.11); vibe(25); }, i * 420)));
     M.treeTimers.push(setTimeout(() => {
@@ -239,8 +240,42 @@
     vibe(40);
   }
 
+  const STILL_V = 0.5, STILL_G = 0.04, STILL_MS = 2000, CREEP_V = 0.7;
+  function imuAvailable() { return (SRC.imu && SRC.imu.active) || S.settings.source === "sim"; }
+  // Gemiddelde versnellingsvector over de laatste ms (in g): trillingen middelen weg, echte beweging niet.
+  function imuMeanG(ms) {
+    const R = RING.imu; if (!R.length) return 0;
+    const end = R[R.length - 1].t; let x = 0, y = 0, z = 0, n = 0;
+    for (let i = R.length - 1; i >= 0 && end - R[i].t <= ms; i--) {
+      const a = R[i]; let ax = a.x, ay = a.y, az = a.z;
+      if (!a.lin && SRC.grav) { ax -= SRC.grav.x; ay -= SRC.grav.y; az -= SRC.grav.z; }
+      x += ax; y += ay; z += az; n++;
+    }
+    return n ? Math.hypot(x / n, y / n, z / n) / E.G : 0;
+  }
+  function abortCountdown(why) {
+    clearTree(); M.state = "arming"; M.stillSince = null; M.rec = null; M.cand = null; M.creepSince = null; M.stillWhy = "move";
+    if (S.settings.source === "sim" && SRC.cur) { SRC.cur.cancel(); SRC.cur.idle(); }
+    setStatus(`${why} — <b>opnieuw stilstaan</b>`); M.abortMsgUntil = performance.now() + 2500;
+    beep(220, 0.25, "sawtooth", 0.06); vibe([40, 60, 40]);
+  }
+  function armingStatus(now) {
+    if (M.state !== "arming" || now < (M.abortMsgUntil || 0)) return;
+    let html;
+    if (!SRC.lastFix || SRC.nofix || now - SRC.lastFix.t > 2500) html = "Wachten op <b>GPS-signaal</b>…";
+    else if (M.stillSince != null) html = `Stilstand controleren… <b>${(Math.max(0, Math.min(STILL_MS, now - M.stillSince)) / 1000).toFixed(1)} / ${(STILL_MS / 1000).toFixed(1)} s</b>`;
+    else if (M.stillWhy === "gps") html = `GPS meldt nog ${(M.stillV * 3.6).toFixed(1)} km/u — <b>even wachten</b>`;
+    else html = "Kom tot <b>volledige stilstand</b>…";
+    if (html !== M.lastStatus) { M.lastStatus = html; setStatus(html); }
+  }
+
   function measureImu(t, mag) {
+    if (M.state === "arming" && M.stillSince != null && imuMeanG(300) > 0.06) { M.stillSince = null; M.stillWhy = "move"; return; }
     if (M.state !== "ready") return;
+    if (performance.now() < M.greenAt && !M.cand) { // langzaam wegrollen tijdens het aftellen
+      if (imuMeanG(500) > 0.06 && mag < 0.15 * E.G) { if (M.creepSince == null) M.creepSince = t; else if (t - M.creepSince > 600) { abortCountdown("Beweging tijdens het aftellen"); return; } }
+      else M.creepSince = null;
+    }
     if (mag > 0.15 * E.G) { if (!M.cand) M.cand = t; else if (t - M.cand >= 120) launch(M.cand, true); }
     else if (mag < 0.1 * E.G) M.cand = null;
   }
@@ -248,12 +283,19 @@
   function measureFix(f) {
     const T = M.target;
     switch (M.state) {
-      case "arming":
-        if (f.v < 0.9) { if (M.stillSince == null) M.stillSince = f.t; else if (f.t - M.stillSince >= 1000) toReady(); }
-        else { M.stillSince = null; setStatus("Kom tot <b>volledige stilstand</b>…"); }
-        if (M.state === "arming" && M.stillSince != null) setStatus("Stilstand gedetecteerd — <b>kalibreren</b>…");
+      case "arming": {
+        // Echte stilstand: GPS onder 1,8 km/u én (als er een bewegingssensor is) geen versnelling, 2 s aaneengesloten.
+        const imuOk = !imuAvailable() || imuMeanG(400) < STILL_G;
+        if (f.v < STILL_V && imuOk) {
+          if (M.stillSince == null) { M.stillSince = f.t; M.stillFixes = 0; }
+          M.stillFixes++;
+          if (f.t - M.stillSince >= STILL_MS && M.stillFixes >= 3) toReady();
+        } else { M.stillSince = null; M.stillWhy = !imuOk ? "move" : f.v >= 1.5 ? "move" : "gps"; M.stillV = f.v; }
         break;
+      }
       case "ready":
+        // Langzaam wegrollen zonder echte launch (voor of na groen) is geen geldige staande start.
+        if (f.v > CREEP_V && imuAvailable() && !M.cand && imuMeanG(300) < 0.12) { abortCountdown("Auto rolde weg"); break; }
         if (f.v > 1.5) launch(SRC.prevFix && SRC.prevFix.v < 0.6 ? Math.max(SRC.prevFix.t, f.t - (f.v / 5) * 1000) : f.t - (f.v / 5) * 1000, false);
         break;
       case "roll-wait":
@@ -607,6 +649,7 @@
     GA.max += (GA.want[0] - GA.max) * (1 - Math.exp(-dt * 4));
     GA.flash = Math.max(0, GA.flash - dt * 1.6);
     updateTel(dt);
+    armingStatus(now);
 
     if (CAM.on) { const a = Math.PI * 0.75 + Math.PI * 1.5 * Math.max(0, Math.min(1.02, GA.v / GA.max)); GA.trail.push(a); if (GA.trail.length > 7) GA.trail.shift(); }
     else if (document.visibilityState === "visible" && $("#v-meten").classList.contains("active") && gSize) {
@@ -1501,7 +1544,7 @@
     ctx.fillStyle = tg; ctx.shadowColor = "rgba(255,47,120,.8)"; ctx.shadowBlur = u * 3;
     ctx.fillText(tEl.toFixed(2), cx, ty); ctx.shadowBlur = 0;
     ctx.font = `800 ${u * 2.2}px Inter, sans-serif`; ctx.fillStyle = "rgba(244,238,251,.75)";
-    const stTxt = CAM.outro ? "OPNAME STOPT" : CAM.awaitEnd ? "FINISH ✓  FILMT TOT GAS LOS" : { idle: "KLAAR VOOR START", arming: "STILSTAAN…", ready: "WACHT OP GROEN", running: "GAS!", "roll-wait": "RIJD ONDER " + (T.from || ""), "roll-armed": "VOL GAS BIJ " + (T.from || "") }[M.state] || "";
+    const stTxt = CAM.outro ? "OPNAME STOPT" : CAM.awaitEnd ? "FINISH ✓  FILMT TOT GAS LOS" : M.state === "arming" && M.stillSince != null ? "STILSTAND CONTROLEREN " + Math.min(2, (now - M.stillSince) / 1000).toFixed(1) + " S" : { idle: "KLAAR VOOR START", arming: "STILSTAAN…", ready: "WACHT OP GROEN", running: "GAS!", "roll-wait": "RIJD ONDER " + (T.from || ""), "roll-armed": "VOL GAS BIJ " + (T.from || "") }[M.state] || "";
     ctx.fillText(stTxt.split("").join(" ").replace(/ {3}/g, "   "), cx, ty + u * 3.8);
     const lights = $$("#tree i").map((el) => el.className);
     if (M.state === "ready" || M.state === "running") lights.forEach((c, i) => {
@@ -1606,5 +1649,5 @@
   document.addEventListener("click", unlockAudio, { once: true });
 
   // alleen voor tests
-  window.__SL = { makeCard, S: () => S, M, SRC, TEL, CAM, openCam, drawCam, drawGauge, showResult, startMeasure, showTab, openSourceSheet };
+  window.__SL = { inject: { fix: onFix, imu: onImu }, stopSource, makeCard, S: () => S, M, SRC, TEL, CAM, openCam, drawCam, drawGauge, showResult, startMeasure, showTab, openSourceSheet };
 })();

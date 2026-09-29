@@ -42,10 +42,11 @@ svg.i{width:22px;height:22px;flex:none;stroke:currentColor;fill:none;stroke-widt
 /* ---------- top bar ---------- */
 .top{display:flex;align-items:center;gap:10px;padding:14px 16px 8px;position:sticky;top:0;z-index:20;
   background:linear-gradient(var(--bg) 70%,transparent)}
-.brand{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0;overflow:hidden}
 .brand svg{width:34px;height:34px;flex:none;filter:drop-shadow(0 0 10px rgba(255,47,120,.45))}
 .brand .w{font-family:var(--display);font-size:21px;letter-spacing:.03em;line-height:1;white-space:nowrap}
 @media (max-width:430px){.chip-btn>svg{display:none}.chip-btn{padding:0 10px}.brand svg{width:30px;height:30px}.top{gap:8px}}
+@media (max-width:400px){.brand>svg{display:none}.brand .w{font-size:19px}.chip-btn{padding:0 9px;gap:6px;letter-spacing:.08em}.icon-btn{width:38px}}
 .brand .w small{display:block;font-family:'Inter';font-weight:800;font-size:8px;letter-spacing:.3em;color:var(--muted);margin-bottom:3px}
 .brand .w b{font-weight:400;background:var(--flame);-webkit-background-clip:text;background-clip:text;color:transparent}
 .chip-btn{display:flex;align-items:center;gap:7px;height:40px;padding:0 12px;border-radius:12px;background:var(--card);border:1px solid var(--line);
@@ -524,9 +525,9 @@ setTimeout(() => {
   s.innerHTML = '<div style="text-align:center;color:#f4eefb;font:15px Inter,sans-serif;padding:24px;max-width:340px"><p style="font-weight:700">ScreamTime kon niet starten</p><p style="color:#7c6d94;font-size:12px;word-break:break-word">' + (window.__bootErr || "onbekende fout") + '</p><button onclick="hardReload()" style="margin-top:10px;height:46px;padding:0 20px;border-radius:14px;border:0;background:linear-gradient(100deg,#ff7a3d,#ff2f78,#a238ff);color:#fff;font-weight:700">Opnieuw laden</button></div>';
 }, 6000);
 </script>
-<script src="engine.js?v=123"></script>
-<script src="sources.js?v=123"></script>
-<script src="app.js?v=123"></script>
+<script src="engine.js?v=131"></script>
+<script src="sources.js?v=131"></script>
+<script src="app.js?v=131"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>
