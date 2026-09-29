@@ -15,7 +15,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;1,700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#0a0712; --bg-raised:#120b1c; --card:#1a1027; --card-2:#221533; --card-hi:#2b1b40;
@@ -181,8 +181,8 @@ main{flex:1;padding:0 16px calc(96px + var(--safe-b))}
 .mini-seg button.on{background:var(--card-hi);color:#fff}
 .styles{display:flex;gap:10px;overflow-x:auto;padding:4px 16px 16px;scrollbar-width:none}
 .styles::-webkit-scrollbar{display:none}
-.styles button{flex:none;width:118px;padding:10px 8px 10px;border-radius:14px;border:1px solid var(--line);background:var(--bg);text-align:center;font-weight:700;font-size:13px;color:var(--muted)}
-.styles button canvas{width:96px;height:96px;display:block;margin:0 auto 6px}
+.styles button{flex:none;width:134px;padding:10px 8px 10px;border-radius:14px;border:1px solid var(--line);background:var(--bg);text-align:center;font-weight:700;font-size:13px;color:var(--muted)}
+.styles button canvas{width:112px;height:112px;display:block;margin:0 auto 6px}
 .styles button.on{border-color:var(--flame-b);color:#fff;box-shadow:0 0 0 1px var(--flame-b),0 0 24px -6px rgba(255,47,120,.7)}
 .about{padding:16px;color:var(--muted);font-size:13.5px}
 .about p{margin:0 0 10px}
@@ -525,9 +525,9 @@ setTimeout(() => {
   s.innerHTML = '<div style="text-align:center;color:#f4eefb;font:15px Inter,sans-serif;padding:24px;max-width:340px"><p style="font-weight:700">ScreamTime kon niet starten</p><p style="color:#7c6d94;font-size:12px;word-break:break-word">' + (window.__bootErr || "onbekende fout") + '</p><button onclick="hardReload()" style="margin-top:10px;height:46px;padding:0 20px;border-radius:14px;border:0;background:linear-gradient(100deg,#ff7a3d,#ff2f78,#a238ff);color:#fff;font-weight:700">Opnieuw laden</button></div>';
 }, 6000);
 </script>
-<script src="engine.js?v=131"></script>
-<script src="sources.js?v=131"></script>
-<script src="app.js?v=131"></script>
+<script src="engine.js?v=140"></script>
+<script src="sources.js?v=140"></script>
+<script src="app.js?v=140"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>

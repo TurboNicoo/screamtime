@@ -1,4 +1,4 @@
-const CACHE = "screamtime-v8";
+const CACHE = "screamtime-v9";
 const ASSETS = ["./", "index.html", "app.js", "engine.js", "sources.js", "manifest.json", "icon-192.png", "icon-512.png", "icon-512-maskable.png",
   "img/car-hood-purple.jpg", "img/car-burnout-smoke.jpg", "img/car-angle-crowd.jpg"];
 const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];

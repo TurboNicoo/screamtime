@@ -1,7 +1,7 @@
 /* Screamer Launch — app (UI, meet-statemachine, gauges, resultaten). */
 (function () {
   "use strict";
-  const VERSION = "1.3.1";
+  const VERSION = "1.4.0";
   const KEY = "screamerlaunch_v1";
   const E = window.Engine, SR = window.Sources;
   const $ = (s, r = document) => r.querySelector(s);
@@ -427,11 +427,6 @@
     classic: { disc: ["#221338", "#0f0819", "#06030b"], ring: "rgba(193,132,255,.32)", track: "rgba(255,255,255,.06)", tick: "rgba(244,238,251,.62)", tickOn: "#fff", hot: "#e2264d", label: "rgba(244,238,251,.9)", digits: "#fff", unit: "rgba(173,158,196,.8)", needle: ["#fff", "#e2264d"], zone: "rgba(226,38,77,.5)" },
     rosso: { disc: ["#b3122a", "#6d0a18", "#2a040a"], ring: "rgba(255,214,140,.4)", track: "rgba(0,0,0,.18)", tick: "rgba(255,240,240,.75)", tickOn: "#fff", hot: "#ffd68c", label: "#fff", digits: "#fff", unit: "rgba(255,220,220,.8)", needle: ["#fff", "#ffd68c"], zone: "rgba(255,214,140,.45)" },
     wit: { disc: ["#f4f1f8", "#d9d3e3", "#9d95ad"], ring: "rgba(20,12,30,.35)", track: "rgba(20,12,30,.08)", tick: "rgba(20,12,30,.7)", tickOn: "#000", hot: "#e2264d", label: "#1a1024", digits: "#1a1024", unit: "rgba(26,16,36,.7)", needle: ["#ff5a1f", "#ff2f00"], zone: "rgba(226,38,77,.5)" },
-    affalterbach: { disc: ["#34343a", "#16161a", "#050506"], ring: "rgba(210,210,220,.55)", track: "rgba(255,255,255,.07)", tick: "#bfbfc9", tickOn: "#fff", hot: "#e10600", label: "#ececf2", digits: "#fff", unit: "#9a9aa6", needle: ["#f2f2f2", "#e10600"], zone: "rgba(225,6,0,.5)", carbon: true },
-    munchen: { disc: ["#1d2536", "#0c1018", "#04060a"], ring: "rgba(90,150,230,.5)", track: "rgba(255,255,255,.06)", tick: "#d6dcea", tickOn: "#fff", hot: "#e4002b", label: "#e8ecf5", digits: "#fff", unit: "#8e9ab3", needle: ["#ff7a1a", "#ff5a00"], zone: "rgba(228,0,43,.5)", stripes: ["#5ab4e5", "#1c3f94", "#e4002b"] },
-    maranello: { disc: ["#ffd84a", "#f2b705", "#a87600"], ring: "#222", track: "rgba(0,0,0,.12)", tick: "rgba(0,0,0,.75)", tickOn: "#000", hot: "#c00000", label: "#111", digits: "#111", unit: "rgba(0,0,0,.65)", needle: ["#c00000", "#c00000"], zone: "rgba(204,0,0,.5)" },
-    zuffenhausen: { disc: ["#1c1c1c", "#0d0d0d", "#000"], ring: "rgba(255,255,255,.35)", track: "rgba(255,255,255,.06)", tick: "#e6e6e6", tickOn: "#fff", hot: "#d5001c", label: "#f2f2f2", digits: "#fff", unit: "#9b9b9b", needle: ["#fff", "#d5001c"], zone: "rgba(213,0,28,.45)" },
-    santagata: { disc: ["#141a0e", "#090c06", "#020302"], ring: "rgba(184,255,60,.5)", track: "rgba(184,255,60,.07)", tick: "#a8e84a", tickOn: "#d9ff8a", hot: "#ff8a00", label: "#e8ffd0", digits: "#b8ff3c", unit: "#7f9a60", needle: ["#fff", "#ff8a00"], zone: "rgba(255,138,0,.5)", hex: true },
   };
   function gaugePal(style, accent) {
     if (style === "eigen") {
@@ -441,7 +436,198 @@
     return PAL[style];
   }
 
+  // Merk-geïnspireerde tellers (uitstraling, zonder logo's of merknamen): elk met eigen wijzerplaat,
+  // rand, schaal, lettertype, naald en display. Vaste schaal zoals een echte teller.
+  const F_COND = (w, px, it) => `${it ? "italic " : ""}${w} ${px}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+  const F_TECH = (w, px) => `${w} ${px}px Orbitron, "JetBrains Mono", monospace`;
+  const BRANDS = {
+    affalterbach: { sweep: 270, fixedMax: { kmh: 320, mph: 200 }, step: { kmh: 20, mph: 20 }, minorDiv: 2,
+      face: ["#232327", "#0f0f11", "#040405"], texture: "carbon", bezel: { type: "chrome", w: 0.075 },
+      tick: "#e9e9ee", hot: "#e30613", tickLen: [0.1, 0.06, 0.05], tickW: [0.02, 0.009],
+      label: { font: (px) => F_COND(600, px), color: "#f3f3f6", r: 0.7, size: 0.105 },
+      needle: { type: "thin", body: "#e30613", tip: "#ff2a2a", len: 0.86, w: 0.026, tail: 0.18, glow: "rgba(227,6,19,.8)" }, cap: "chrome",
+      center: { type: "lcd", font: (px) => F_COND(700, px), color: "#fff", bg: "#050505" }, zone: "rgba(227,6,19,.55)", unitColor: "#9c9ca6" },
+    munchen: { sweep: 250, fixedMax: { kmh: 300, mph: 200 }, step: { kmh: 20, mph: 20 }, minorDiv: 2,
+      face: ["#1a1d24", "#0b0d11", "#030406"], bezel: { type: "chrome", w: 0.04 },
+      tick: "#f1f3f7", hot: "#e4002b", tickLen: [0.1, 0.06, 0.05], tickW: [0.018, 0.008],
+      label: { font: (px) => F_COND(500, px), color: "#f5f7fa", r: 0.71, size: 0.105 },
+      needle: { type: "thin", body: "#ff5b00", tip: "#ff7a1a", len: 0.88, w: 0.022, tail: 0.2, glow: "rgba(255,91,0,.9)" }, cap: "black",
+      center: { type: "lcd", font: (px) => F_COND(600, px), color: "#f5f7fa", bg: "#020203" }, zone: "rgba(228,0,43,.55)", unitColor: "#8e97a8",
+      stripes: ["#4fb3e8", "#1b3a8f", "#e4002b"] },
+    zuffenhausen: { sweep: 255, fixedMax: { kmh: 340, mph: 210 }, step: { kmh: 20, mph: 20 }, minorDiv: 2,
+      face: ["#161616", "#0a0a0a", "#000"], bezel: { type: "chrome", w: 0.035 },
+      tick: "#ffffff", hot: "#e0001b", tickLen: [0.13, 0.07, 0.06], tickW: [0.028, 0.01],
+      label: { font: (px) => F_COND(600, px), color: "#ffffff", r: 0.67, size: 0.125 },
+      needle: { type: "baton", body: "#f6f6f6", tip: "#ff3b1f", len: 0.84, w: 0.034, tail: 0.2 }, cap: "black-chrome",
+      center: { type: "plain", font: (px) => F_COND(700, px), color: "#fff" }, zone: "rgba(224,0,27,.5)", unitColor: "#a0a0a0" },
+    maranello: { sweep: 270, fixedMax: { kmh: 360, mph: 220 }, step: { kmh: 20, mph: 20 }, minorDiv: 2,
+      face: ["#ffe24a", "#f7c600", "#b88c00"], bezel: { type: "dark", w: 0.06, color: "#0c0c0c" },
+      tick: "#111", hot: "#d40000", tickLen: [0.11, 0.065, 0.05], tickW: [0.022, 0.01],
+      label: { font: (px) => F_COND(700, px, true), color: "#111", r: 0.7, size: 0.115 },
+      needle: { type: "baton", body: "#d40000", tip: "#d40000", len: 0.84, w: 0.03, tail: 0.17 }, cap: "black",
+      center: { type: "plain", font: (px) => F_COND(700, px, true), color: "#111" }, zone: "rgba(212,0,0,.85)", zoneOuter: true, unitColor: "rgba(0,0,0,.65)" },
+    santagata: { sweep: 240, fixedMax: { kmh: 340, mph: 210 }, step: { kmh: 20, mph: 20 }, minorDiv: 2,
+      face: ["#15170d", "#090a06", "#020201"], texture: "hex", texColor: "rgba(255,196,0,.08)", bezel: { type: "glow", color: "#ffc400" },
+      tick: "#ffc400", hot: "#ff5a00", tickLen: [0.09, 0.055, 0.045], tickW: [0.02, 0.009],
+      label: { font: (px) => F_TECH(600, px), color: "#fff4c2", r: 0.63, size: 0.065 },
+      progress: ["#ffc400", "#ff5a00"], needle: { type: "float", body: "#ffffff", from: 0.8, to: 0.99, w: 0.025, glow: "rgba(255,196,0,.9)" }, cap: "none",
+      center: { type: "big", font: (px) => F_TECH(800, px), color: "#ffc400", glow: "rgba(255,160,0,.6)" }, zone: "rgba(255,90,0,.35)", unitColor: "#b59a4a" },
+    angelholm: { sweep: 270, fixedMax: { kmh: 500, mph: 300 }, step: { kmh: 50, mph: 25 }, minorDiv: 5,
+      face: ["#1b2127", "#0b0e12", "#020304"], texture: "ghost", bezel: { type: "glow", color: "rgba(255,177,0,.7)" },
+      tick: "rgba(255,255,255,.85)", hot: "#ffb100", tickLen: [0.1, 0.06, 0.04], tickW: [0.016, 0.007],
+      label: { font: (px) => F_TECH(600, px), color: "#ffffff", r: 0.75, size: 0.07 },
+      needle: { type: "float", body: "#ffb100", from: 0.6, to: 0.99, w: 0.03, glow: "rgba(255,177,0,1)" }, cap: "none",
+      center: { type: "big", font: (px) => F_TECH(800, px), color: "#ffffff", glow: "rgba(255,177,0,.55)" }, zone: "rgba(255,177,0,.4)", unitColor: "#ffb100" },
+    molsheim: { sweep: 270, fixedMax: { kmh: 500, mph: 300 }, step: { kmh: 50, mph: 25 }, minorDiv: 5,
+      face: ["#2a2d32", "#131519", "#050607"], texture: "brushed", bezel: { type: "chrome", w: 0.09 },
+      tick: "#f1f4f8", hot: "#2f6bff", tickLen: [0.1, 0.06, 0.04], tickW: [0.02, 0.008],
+      label: { font: (px) => F_COND(600, px), color: "#f4f6fa", r: 0.7, size: 0.1 },
+      needle: { type: "thin", body: "#f4f7fb", tip: "#2f6bff", len: 0.86, w: 0.024, tail: 0.18, glow: "rgba(47,107,255,.8)" }, cap: "chrome",
+      center: { type: "lcd", font: (px) => F_COND(700, px), color: "#dfe8ff", bg: "#04060a" }, zone: "rgba(47,107,255,.5)", unitColor: "#9aa4b6" },
+    woking: { sweep: 240, fixedMax: { kmh: 340, mph: 210 }, step: { kmh: 20, mph: 20 }, minorDiv: 2,
+      face: ["#17191c", "#0b0c0e", "#030304"], bezel: { type: "dark", w: 0.035, color: "#1e2024" },
+      tick: "#e8e8e8", hot: "#ff8000", tickLen: [0.08, 0.05, 0.04], tickW: [0.016, 0.008],
+      label: { font: (px) => F_TECH(600, px), color: "#ececec", r: 0.63, size: 0.063 },
+      progress: ["#ff8000", "#ffa040"], needle: null, cap: "none",
+      center: { type: "big", font: (px) => F_TECH(800, px), color: "#ffffff", glow: "rgba(255,128,0,.5)" }, zone: "rgba(255,128,0,.3)", unitColor: "#ff8000" },
+  };
+
+  // Voorbeeldstand voor een tellerstijl (op de echte schaal van die teller).
+  function previewOpts(style) {
+    const B = BRANDS[style], u = unit();
+    if (B) { const mx = B.fixedMax[u]; return { max: mx, step: B.step[u], v: Math.round(mx * 0.42), target: u === "mph" ? 60 : 100 }; }
+    return { max: u === "mph" ? 140 : 200, step: 20, v: u === "mph" ? 88 : 138, target: u === "mph" ? 60 : 100 };
+  }
+  function drawBrandGauge(ctx, W, o, B) {
+    const cx = W / 2, cy = W / 2, R = W * 0.46, sw = (B.sweep * Math.PI) / 180, a0 = Math.PI / 2 + (TAU - sw) / 2;
+    const ang = (v) => a0 + sw * Math.max(0, Math.min(1.01, v / o.max));
+    const small = W < 100;
+    ctx.clearRect(0, 0, W, W); ctx.save();
+    // rand
+    const bz = B.bezel;
+    if (bz.type === "chrome") {
+      const lg = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+      ["#f6f7f9", "#8c9098", "#e8eaed", "#5a5e65", "#d3d6da"].forEach((c, i) => lg.addColorStop(i / 4, c));
+      ctx.beginPath(); ctx.arc(cx, cy, R * 1.07, 0, TAU); ctx.fillStyle = lg; ctx.fill();
+    } else if (bz.type === "dark") { ctx.beginPath(); ctx.arc(cx, cy, R * 1.07, 0, TAU); ctx.fillStyle = bz.color; ctx.fill(); }
+    const faceR = bz.type === "glow" ? R * 1.05 : R * (1.07 - bz.w);
+    // wijzerplaat
+    const g = ctx.createRadialGradient(cx, cy * 0.78, R * 0.05, cx, cy, faceR);
+    g.addColorStop(0, B.face[0]); g.addColorStop(0.7, B.face[1]); g.addColorStop(1, B.face[2]);
+    ctx.beginPath(); ctx.arc(cx, cy, faceR, 0, TAU); ctx.fillStyle = g; ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, faceR, 0, TAU); ctx.clip();
+    if (B.texture === "carbon") {
+      const cs = R * 0.05;
+      for (let yy = cy - R; yy < cy + R; yy += cs) for (let xx = cx - R; xx < cx + R; xx += cs) {
+        const f = Math.round((xx - cx + yy - cy) / cs) % 2 === 0;
+        const lg = ctx.createLinearGradient(xx, yy, xx + cs, yy + cs);
+        lg.addColorStop(0, f ? "rgba(255,255,255,.05)" : "rgba(0,0,0,.18)"); lg.addColorStop(1, f ? "rgba(0,0,0,.12)" : "rgba(255,255,255,.03)");
+        ctx.fillStyle = lg; ctx.fillRect(xx, yy, cs, cs);
+      }
+    } else if (B.texture === "hex") {
+      const cs = R * 0.085; ctx.strokeStyle = B.texColor; ctx.lineWidth = Math.max(1, R * 0.006);
+      for (let row = 0, yy = cy - R; yy < cy + R + cs; yy += cs * 1.5, row++) for (let xx = cx - R - cs; xx < cx + R + cs; xx += cs * 1.732) {
+        const ox = (row % 2) * cs * 0.866; ctx.beginPath();
+        for (let i = 0; i < 6; i++) { const aa = (Math.PI / 3) * i + Math.PI / 6; ctx.lineTo(xx + ox + Math.cos(aa) * cs, yy + Math.sin(aa) * cs); }
+        ctx.closePath(); ctx.stroke();
+      }
+    } else if (B.texture === "brushed") {
+      for (let r = faceR, i = 0; r > R * 0.1; r -= Math.max(1, R * 0.01), i++) { ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.strokeStyle = `rgba(255,255,255,${[0.018, 0.035, 0.01, 0.028][i % 4]})`; ctx.lineWidth = 1; ctx.stroke(); }
+    } else if (B.texture === "ghost") {
+      const sh = ctx.createLinearGradient(cx - R, cy - R, cx + R * 0.2, cy + R * 0.2);
+      sh.addColorStop(0, "rgba(255,255,255,.1)"); sh.addColorStop(0.5, "rgba(255,255,255,.02)"); sh.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = sh; ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+      [0.5, 0.58].forEach((k) => { ctx.beginPath(); ctx.arc(cx, cy, R * k, 0, TAU); ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = Math.max(1, R * 0.006); ctx.stroke(); });
+    }
+    ctx.restore();
+    if (bz.type === "glow") { ctx.beginPath(); ctx.arc(cx, cy, R * 1.05, 0, TAU); ctx.strokeStyle = bz.color; ctx.lineWidth = R * 0.014; ctx.shadowColor = bz.color; ctx.shadowBlur = R * 0.09; ctx.stroke(); ctx.shadowBlur = 0; }
+    else { ctx.beginPath(); ctx.arc(cx, cy, faceR, 0, TAU); ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.lineWidth = R * 0.014; ctx.stroke(); }
+
+    // doelzone en voortgang
+    const tickOuter = R * (bz.type === "chrome" ? 0.975 - bz.w + 0.075 : 0.985) - R * 0.01;
+    if (o.target && o.target < o.max) {
+      arcPath(ctx, cx, cy, B.zoneOuter ? tickOuter - R * 0.015 : tickOuter - R * 0.14, ang(o.target), a0 + sw);
+      ctx.strokeStyle = B.zone; ctx.lineWidth = R * (B.zoneOuter ? 0.03 : 0.025); ctx.stroke();
+    }
+    if (B.progress && o.v > 0.2) {
+      const lg = ctx.createLinearGradient(cx - R, 0, cx + R, 0); lg.addColorStop(0, B.progress[0]); lg.addColorStop(1, B.progress[1]);
+      arcPath(ctx, cx, cy, tickOuter - R * 0.17, a0, ang(o.v)); ctx.strokeStyle = lg; ctx.lineWidth = R * 0.055; ctx.lineCap = "round";
+      ctx.shadowColor = B.progress[0]; ctx.shadowBlur = R * 0.1; ctx.stroke(); ctx.shadowBlur = 0; ctx.lineCap = "butt";
+    }
+    // streepjes en cijfers
+    const div = B.minorDiv, minor = o.step / div;
+    const perStep = (R * B.label.r * sw * o.step) / o.max, lblEvery = Math.max(1, Math.ceil((R * 0.2) / perStep));
+    for (let v = 0, i = 0; v <= o.max + 1e-6; v += minor, i++) {
+      const a = ang(v), major = i % div === 0, mid = !major && div % 2 === 0 && i % (div / 2) === 0;
+      const len = R * (major ? B.tickLen[0] : mid ? B.tickLen[1] : B.tickLen[2]);
+      ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * (tickOuter - len), cy + Math.sin(a) * (tickOuter - len)); ctx.lineTo(cx + Math.cos(a) * tickOuter, cy + Math.sin(a) * tickOuter);
+      ctx.lineWidth = R * (major ? B.tickW[0] : B.tickW[1]); ctx.strokeStyle = B.tick; ctx.stroke();
+      if (major && !small && (i / div) % lblEvery === 0) {
+        ctx.font = B.label.font(R * B.label.size * (o.max >= 400 && B.label.size > 0.09 ? 0.9 : 1));
+        ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = B.label.color;
+        ctx.fillText(String(Math.round(v)), cx + Math.cos(a) * R * B.label.r, cy + Math.sin(a) * R * B.label.r);
+      }
+    }
+    if (o.target && o.target <= o.max && o.live) { // pulserende doelmarkering
+      const a = ang(o.target), pulse = 0.55 + 0.45 * Math.sin(performance.now() / 260), r = tickOuter + R * 0.03;
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, R * 0.022, 0, TAU); ctx.fillStyle = B.hot; ctx.globalAlpha = pulse; ctx.shadowColor = B.hot; ctx.shadowBlur = R * 0.06; ctx.fill(); ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    }
+    if (B.stripes) B.stripes.forEach((c, i) => { ctx.beginPath(); ctx.arc(cx, cy, R * (0.9 - i * 0.032), Math.PI * 0.4, Math.PI * 0.6); ctx.strokeStyle = c; ctx.lineWidth = R * 0.024; ctx.stroke(); });
+    if (o.logo && o.logo.complete && o.logo.naturalWidth && !small) {
+      const lw = R * 0.44, lh = R * 0.2, s = Math.min(lw / o.logo.naturalWidth, lh / o.logo.naturalHeight), dw = o.logo.naturalWidth * s, dh = o.logo.naturalHeight * s;
+      ctx.globalAlpha = 0.95; ctx.drawImage(o.logo, cx - dw / 2, cy - R * 0.4 - dh / 2, dw, dh); ctx.globalAlpha = 1;
+    }
+    // uitlezing in het midden
+    const digits = String(Math.round(o.v)), C = B.center;
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    if (C.type === "lcd") {
+      const bw = R * 0.56, bh = R * 0.3, bx = cx - bw / 2, by = cy + R * 0.3;
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, R * 0.05) : ctx.rect(bx, by, bw, bh);
+      ctx.fillStyle = C.bg; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,.14)"; ctx.lineWidth = Math.max(1, R * 0.008); ctx.stroke();
+      ctx.font = C.font(R * 0.22); ctx.fillStyle = C.color; ctx.fillText(digits, cx, by + bh * 0.7);
+      ctx.font = `600 ${R * 0.055}px Inter, sans-serif`; ctx.fillStyle = B.unitColor; ctx.fillText(o.unit, cx, by + bh * 0.93);
+    } else if (C.type === "plain") {
+      ctx.font = C.font(R * 0.24); ctx.fillStyle = C.color; ctx.fillText(digits, cx, cy + R * 0.55);
+      ctx.font = `600 ${R * 0.065}px Inter, sans-serif`; ctx.fillStyle = B.unitColor; ctx.fillText(o.unit, cx, cy + R * 0.66);
+    } else {
+      ctx.font = C.font(R * 0.3); ctx.fillStyle = C.color; if (C.glow) { ctx.shadowColor = C.glow; ctx.shadowBlur = R * 0.12; }
+      ctx.fillText(digits, cx, cy + R * 0.12); ctx.shadowBlur = 0;
+      ctx.font = F_TECH(600, R * 0.06); ctx.fillStyle = B.unitColor; ctx.fillText(o.unit.toUpperCase(), cx, cy + R * 0.26);
+    }
+    // naald
+    const N = B.needle;
+    if (N) {
+      const a = ang(o.v);
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
+      if (N.glow) { ctx.shadowColor = N.glow; ctx.shadowBlur = R * 0.08; }
+      if (N.type === "float") {
+        ctx.beginPath(); ctx.moveTo(R * N.from, 0); ctx.lineTo(R * N.to, 0); ctx.strokeStyle = N.body; ctx.lineWidth = R * N.w; ctx.lineCap = "round"; ctx.stroke();
+      } else {
+        const L = R * N.len, w = R * N.w, T = R * N.tail;
+        const ng = ctx.createLinearGradient(-T, 0, L, 0); ng.addColorStop(0, N.body); ng.addColorStop(0.7, N.body); ng.addColorStop(1, N.tip);
+        ctx.beginPath();
+        if (N.type === "baton") { ctx.moveTo(-T, -w / 2); ctx.lineTo(L - w / 2, -w / 2); ctx.arc(L - w / 2, 0, w / 2, -Math.PI / 2, Math.PI / 2); ctx.lineTo(-T, w / 2); }
+        else { ctx.moveTo(-T, -w * 0.8); ctx.lineTo(L, -w * 0.18); ctx.lineTo(L, w * 0.18); ctx.lineTo(-T, w * 0.8); }
+        ctx.closePath(); ctx.fillStyle = ng; ctx.fill();
+      }
+      ctx.restore(); ctx.shadowBlur = 0;
+    }
+    if (B.cap === "chrome" || B.cap === "black-chrome") {
+      const cr = R * (B.cap === "chrome" ? 0.085 : 0.12);
+      const cg = ctx.createRadialGradient(cx - cr * 0.3, cy - cr * 0.3, cr * 0.1, cx, cy, cr);
+      if (B.cap === "chrome") { cg.addColorStop(0, "#ffffff"); cg.addColorStop(0.5, "#9aa0a8"); cg.addColorStop(1, "#3c4046"); }
+      else { cg.addColorStop(0, "#2a2a2c"); cg.addColorStop(1, "#050505"); }
+      ctx.beginPath(); ctx.arc(cx, cy, cr, 0, TAU); ctx.fillStyle = cg; ctx.fill();
+      ctx.lineWidth = R * 0.012; ctx.strokeStyle = B.cap === "chrome" ? "#2b2e33" : "#b9bcc2"; ctx.stroke();
+    } else if (B.cap === "black") {
+      ctx.beginPath(); ctx.arc(cx, cy, R * 0.09, 0, TAU); ctx.fillStyle = "#0b0b0c"; ctx.fill(); ctx.lineWidth = R * 0.012; ctx.strokeStyle = "#3a3a3e"; ctx.stroke();
+    }
+    ctx.restore();
+    return { cx, cy, R, ang };
+  }
+
   function drawGauge(ctx, W, o) {
+    if (BRANDS[o.style]) return drawBrandGauge(ctx, W, o, BRANDS[o.style]);
     const cx = W / 2, cy = W / 2, R = W * 0.46, a0 = Math.PI * 0.75, sweep = Math.PI * 1.5;
     const ang = (v) => a0 + sweep * Math.max(0, Math.min(1.02, v / o.max));
     const step = o.step, minor = step / (step % 4 === 0 || step === 20 ? 4 : 5);
@@ -645,7 +831,8 @@
     // schaal
     const T = curTargetCached();
     const need = Math.max(T.type === "speed" ? T.to * (T.to >= 300 ? 1.2 : 1.3) : (unit() === "mph" ? 130 : 200), GA.v * 1.12);
-    GA.want = pickMax(need);
+    const bs = BRANDS[gaugeOpts().style];
+    GA.want = bs && need <= bs.fixedMax[unit()] ? [bs.fixedMax[unit()], bs.step[unit()]] : pickMax(need);
     GA.max += (GA.want[0] - GA.max) * (1 - Math.exp(-dt * 4));
     GA.flash = Math.max(0, GA.flash - dt * 1.6);
     updateTel(dt);
@@ -841,7 +1028,7 @@
         const gsel = $("#fGauge", b).value, st = gsel === "default" ? S.settings.gauge : gsel;
         let im = null; if (logo) { im = new Image(); im.src = logo; im.onload = () => { if (im === prevImg) draw(); }; }
         prevImg = im;
-        const draw = () => drawGauge(x, 180, { v: 138, max: 200, step: 20, target: 100, style: st, unit: uLbl(), trail: [], sparks: [], accent: $("#fAccent", b).value, logo: im, g: { lat: 0.3, lon: 0.7, trail: [] } });
+        const draw = () => drawGauge(x, 180, Object.assign(previewOpts(st), { style: st, unit: uLbl(), trail: [], sparks: [], accent: $("#fAccent", b).value, logo: im, g: { lat: 0.3, lon: 0.7, trail: [] } }));
         draw();
       };
       let prevImg = null;
@@ -1235,7 +1422,7 @@
   }
 
   // ================= instellingen =================
-  const GAUGE_STYLES = [["screamer", "Screamer"], ["villain", "Villain"], ["hyper", "Hyper"], ["gforce", "G-Force"], ["classic", "Classic"], ["rosso", "Rosso"], ["wit", "Wit"], ["affalterbach", "Affalterbach"], ["munchen", "München"], ["maranello", "Maranello"], ["zuffenhausen", "Zuffenhausen"], ["santagata", "Sant'Agata"]];
+  const GAUGE_STYLES = [["screamer", "Screamer"], ["villain", "Villain"], ["hyper", "Hyper"], ["gforce", "G-Force"], ["classic", "Classic"], ["rosso", "Rosso"], ["wit", "Wit"], ["affalterbach", "Affalterbach"], ["munchen", "München"], ["zuffenhausen", "Zuffenhausen"], ["maranello", "Maranello"], ["santagata", "Sant'Agata"], ["angelholm", "Ängelholm"], ["molsheim", "Molsheim"], ["woking", "Woking"]];
   function renderSettings() {
     const k = S.settings.source;
     $("#srcDesc").textContent = { phone: "Telefoon-GPS", usb: "USB-C GNSS-ontvanger", racebox: "RaceBox (Bluetooth)", ble: "Bluetooth NMEA-ontvanger", sim: "Demo-modus" }[k];
@@ -1246,11 +1433,11 @@
     $("#backupInfo").textContent = S.backupAt ? `Laatste back-up: ${fmtDate(S.backupAt, true)} · ${S.runs.length} runs` : `Nog geen back-up · ${S.runs.length} runs`;
     const styles = GAUGE_STYLES;
     const list = $("#styleList");
-    if (!list.children.length) list.innerHTML = styles.map(([id, n]) => `<button data-st="${id}"><canvas width="192" height="192"></canvas>${n}</button>`).join("");
+    if (!list.children.length) list.innerHTML = styles.map(([id, n]) => `<button data-st="${id}"><canvas width="224" height="224"></canvas>${n}</button>`).join("");
     $$("button", list).forEach((b) => {
       b.classList.toggle("on", b.dataset.st === S.settings.gauge);
       const cv = b.querySelector("canvas"), cx = cv.getContext("2d"); cx.setTransform(2, 0, 0, 2, 0, 0);
-      drawGauge(cx, 96, { v: unit() === "mph" ? 88 : 138, max: unit() === "mph" ? 140 : 200, step: unit() === "mph" ? 20 : 20, target: unit() === "mph" ? 60 : 100, style: b.dataset.st, unit: uLbl(), trail: [], sparks: [], g: { lat: 0.35, lon: 0.7, trail: [[0, 0], [0.05, 0.3], [0.15, 0.55], [0.35, 0.7]] } });
+      drawGauge(cx, 112, Object.assign(previewOpts(b.dataset.st), { style: b.dataset.st, unit: uLbl(), trail: [], sparks: [], g: { lat: 0.35, lon: 0.7, trail: [[0, 0], [0.05, 0.3], [0.15, 0.55], [0.35, 0.7]] } }));
     });
   }
   $("#styleList").addEventListener("click", (e) => { const b = e.target.closest("[data-st]"); if (!b) return; S.settings.gauge = b.dataset.st; save(); renderSettings(); });
@@ -1640,6 +1827,7 @@
   if (!isStandalone()) setTimeout(() => { $("#installBar").hidden = false; }, 1200);
 
   // ================= start =================
+  if (document.fonts) document.fonts.ready.then(() => { if ($("#v-settings").classList.contains("active")) renderSettings(); });
   renderAll();
   sizeGauge();
   startSource(false);
