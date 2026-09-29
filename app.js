@@ -1,7 +1,7 @@
 /* Screamer Launch — app (UI, meet-statemachine, gauges, resultaten). */
 (function () {
   "use strict";
-  const VERSION = "1.2.0";
+  const VERSION = "1.2.1";
   const KEY = "screamerlaunch_v1";
   const E = window.Engine, SR = window.Sources;
   const $ = (s, r = document) => r.querySelector(s);
@@ -1582,7 +1582,7 @@
   // ================= installeren als app =================
   const isStandalone = () => matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true;
   let installEvt = null;
-  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; if (!isStandalone()) $("#installBar").hidden = false; });
+  window.addEventListener("beforeinstallprompt", (e) => { installEvt = e; // bewust geen preventDefault: Chrome toont dan zelf de installeer-melding if (!isStandalone()) $("#installBar").hidden = false; });
   window.addEventListener("appinstalled", () => { $("#installBar").hidden = true; toast("ScreamTime is geïnstalleerd — open hem vanaf je startscherm", 4000); });
   $("#installBtn").addEventListener("click", async () => {
     if (installEvt) { installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if (r && r.outcome === "accepted") $("#installBar").hidden = true; installEvt = null; return; }
