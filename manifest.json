@@ -1,6 +1,6 @@
 {
-  "name": "Screamer Launch",
-  "short_name": "Launch",
+  "name": "ScreamTime by Street Screamer",
+  "short_name": "ScreamTime",
   "description": "0–500 km/u acceleratietimer in Street Screamer-stijl — GPS + IMU, camera-overlay, records",
   "start_url": "./index.html",
   "scope": "./",

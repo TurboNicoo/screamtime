@@ -7,7 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Screamer Launch</title>
+<title>ScreamTime</title>
+<meta name="apple-mobile-web-app-title" content="ScreamTime">
+<meta name="application-name" content="ScreamTime">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -42,9 +44,9 @@ svg.i{width:22px;height:22px;flex:none;stroke:currentColor;fill:none;stroke-widt
   background:linear-gradient(var(--bg) 70%,transparent)}
 .brand{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0}
 .brand svg{width:34px;height:34px;flex:none;filter:drop-shadow(0 0 10px rgba(255,47,120,.45))}
-.brand .w{font-family:var(--display);font-size:19px;letter-spacing:.07em;line-height:.98;white-space:nowrap}
-.brand .w b{display:block}
-.brand .w small{display:block;font-family:'Inter';font-weight:700;font-size:8.5px;letter-spacing:.34em;color:var(--muted)}
+.brand .w{font-family:var(--display);font-size:21px;letter-spacing:.03em;line-height:1;white-space:nowrap}
+@media (max-width:430px){.chip-btn>svg{display:none}.chip-btn{padding:0 10px}.brand svg{width:30px;height:30px}.top{gap:8px}}
+.brand .w small{display:block;font-family:'Inter';font-weight:800;font-size:8px;letter-spacing:.3em;color:var(--muted);margin-bottom:3px}
 .brand .w b{font-weight:400;background:var(--flame);-webkit-background-clip:text;background-clip:text;color:transparent}
 .chip-btn{display:flex;align-items:center;gap:7px;height:40px;padding:0 12px;border-radius:12px;background:var(--card);border:1px solid var(--line);
   font:700 11px/1 'Inter';letter-spacing:.14em;color:var(--muted);white-space:nowrap}
@@ -268,6 +270,29 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
 .cam-save[hidden]{display:none}
 .cam-save{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(84px + var(--safe-b));z-index:2;height:46px;padding:0 18px;border-radius:14px;background:rgba(10,7,18,.75);border:1px solid var(--flame-b);color:#fff;font-weight:700;display:flex;align-items:center;gap:8px;backdrop-filter:blur(8px)}
 
+/* ---------- tips ---------- */
+.tipsbox{margin-top:12px;padding:6px 0 8px}
+.tipsbox h4{margin:12px 16px 10px;font:800 10.5px 'Inter';letter-spacing:.26em;color:var(--dim)}
+.pot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px}
+.pot div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 6px;text-align:center}
+.pot span{display:block;font:800 9px 'Inter';letter-spacing:.18em;color:var(--dim)}
+.pot b{display:block;font:700 18px var(--mono);margin-top:3px}
+.pot b.fl{color:var(--flame-a)}
+.tipnote{font-size:12.5px;color:var(--muted);margin:10px 16px 4px}
+.tip{display:flex;gap:12px;padding:12px 16px;border-top:1px solid var(--line)}
+.tip .ic{color:var(--flame-b);margin-top:2px}
+.tip b{font-size:14.5px;display:block}
+.tip p{margin:3px 0 0;color:var(--muted);font-size:13.5px}
+.gain{display:inline-block;font:700 11px var(--mono);color:var(--ok);background:rgba(51,209,122,.12);border-radius:7px;padding:3px 7px;margin-left:4px;vertical-align:1px}
+.logo-row{display:flex;gap:12px;align-items:flex-start}
+.logo-pick{width:104px;height:120px;border-radius:16px;border:1px dashed var(--line-strong);background:var(--card);display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;color:var(--muted);font-size:12px;font-weight:600;flex:none;cursor:pointer;overflow:hidden}
+.logo-pick img{max-width:86%;max-height:86%;object-fit:contain}
+.field select{appearance:none;-webkit-appearance:none;background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23ad9ec4' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 14px center;padding-right:34px;font-size:14px}
+.field input[type=color]{padding:6px;height:50px}
+.gprev{width:180px;height:180px;display:block;margin:4px auto 6px}
+.linkbtn{color:var(--flame-b);font-weight:700;text-decoration:underline;font-size:12.5px}
+.car-logo{position:absolute;right:16px;bottom:16px;max-width:120px;max-height:56px;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(0,0,0,.6))}
+
 /* ---------- HUD ---------- */
 .hud{position:fixed;inset:0;z-index:80;background:#000;display:none;flex-direction:column;align-items:center;justify-content:center}
 .hud.open{display:flex}
@@ -334,7 +359,7 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
 
 <div class="app">
   <header class="top">
-    <div class="brand"><svg><use href="#logo"/></svg><div class="w">SCREAMER<b>LAUNCH</b></div></div>
+    <div class="brand"><svg><use href="#logo"/></svg><div class="w"><small>STREET SCREAMER</small>SCREAM<b>TIME</b></div></div>
     <button class="chip-btn" id="gpsChip"><i class="dot" id="gpsDot"></i><span id="gpsLbl">GPS</span><svg class="i" style="width:14px;height:14px"><use href="#i-down"/></svg></button>
     <button class="icon-btn" id="camBtn" aria-label="Camera-modus"><svg class="i"><use href="#i-cam"/></svg></button>
     <button class="icon-btn" id="hudBtn" aria-label="HUD-modus"><svg class="i"><use href="#i-hud"/></svg></button>
@@ -417,7 +442,7 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
 
       <div class="h-eyebrow">Over</div>
       <div class="card about">
-        <p><b style="color:var(--ink)">Screamer Launch · versie <span id="ver"></span></b></p>
+        <p><b style="color:var(--ink)">ScreamTime by Street Screamer · versie <span id="ver"></span></b></p>
         <p>Meet acceleratietijden met GPS-Doppler-snelheid, gecombineerd met de bewegingssensor van je telefoon. De GPS bepaalt de snelheid; de versnellingsmeter vult de momenten tussen GPS-updates in en bepaalt het exacte startmoment.</p>
         <p><b style="color:var(--ink)">Privacy:</b> alles blijft op je telefoon — geen account, geen server. Camera-opnames worden alleen opgeslagen als jij dat doet.</p>
         <p><b style="color:var(--ink)">Voor super- en hypercars:</b> telefoon-GPS ververst meestal 1× per seconde. Voor tijden tot 500 km/u is een externe 10–25 Hz ontvanger veel nauwkeuriger (u-blox M10 via USB-C, of een RaceBox via Bluetooth).</p>
@@ -451,6 +476,7 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
     <div class="kpis" id="resKpis"></div>
     <div class="card chart"><canvas id="resChart"></canvas></div>
     <div class="card splits" id="resSplits"></div>
+    <div class="card tipsbox" id="resTips"></div>
     <div class="quality" id="resQual"></div>
     <div class="rbtns" id="resBtns"></div>
   </div>

@@ -25,7 +25,10 @@
     constructor(onFix, onStatus) { this.onFix = onFix; this.onStatus = onStatus; this.id = null; this.kind = "phone"; }
     start() {
       if (!("geolocation" in navigator)) { this.onStatus({ error: "Geen GPS beschikbaar in deze browser" }); return; }
+      let lastTs = null;
       this.id = navigator.geolocation.watchPosition((p) => {
+        if (p.timestamp === lastTs) return; // dubbel afgeleverde fix
+        lastTs = p.timestamp;
         const epochOff = Date.now() - performance.now();
         let t = p.timestamp - epochOff;
         const now = performance.now();

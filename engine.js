@@ -423,7 +423,7 @@
    * opts: { hz, imuHz, idle(s), stopV(m/s), stopD(m), rollFrom(m/s) , seed, gpsNoise, imuNoise, gpsLatency(ms) }
    */
   function simulate(carId, opts) {
-    const car = SIM_CARS[carId] || SIM_CARS.screamer;
+    const car = typeof carId === "object" && carId ? carId : SIM_CARS[carId] || SIM_CARS.screamer;
     opts = Object.assign({ hz: 10, imuHz: 60, idle: 2.5, stopV: 110 * KMH, stopD: 0, rollFrom: 0, seed: 7, gpsNoise: 0.08, imuNoise: 0.25, imu: true, altSlope: 0 }, opts || {});
     const r = rng(opts.seed);
     const dt = 0.0005;
@@ -450,7 +450,7 @@
         const trac = car.mu * car.m * G * car.drive;
         let F = Math.min(trac, car.P / Math.max(v, 0.5));
         // simpele launch-opbouw (koppeling/traction control)
-        F *= Math.min(1, 0.55 + (t - launched) * 3);
+        F *= Math.min(1, (car.launch0 != null ? car.launch0 : 0.55) + (t - launched) * 3);
         if (gear < car.shifts.length && v * 3.6 >= car.shifts[gear]) { gear++; shiftUntil = t + car.shiftT; }
         if (t < shiftUntil) F *= 0.25;
         if (v >= car.vmax) F = Math.min(F, drag);
@@ -485,5 +485,29 @@
     return { gps, imu, truth, car };
   }
 
-  return { G, KMH, MPH, SPEED_PAIRS, DISTANCES, ROLLOUT_M, analyze, simulate, SIM_CARS, haversine, pchip, linInterp };
+  // Fysisch model van een echte auto op basis van de garage-gegevens.
+  function carModel(c) {
+    const drive = c.drive || "rwd", box = c.gearbox || "auto", tires = c.tires || "street";
+    const hp = +c.hp || 300, kg = (+c.kg || 1600) + 80;
+    const loss = { rwd: 0.86, awd: 0.8, fwd: 0.88 }[drive] || 0.85;
+    const mu = { street: 1.15, semi: 1.35, drag: 1.7, winter: 0.8 }[tires] || 1.1;
+    const df = { rwd: 0.73, awd: 1.0, fwd: 0.47 }[drive] || 0.62; // effectief gewicht op de aangedreven as bij het wegrijden
+    const vmax = (+c.vmax || Math.min(420, 150 + hp * 0.22)) / 3.6;
+    const shiftT = { dct: 0.06, auto: 0.13, manual: 0.32 }[box] || 0.13;
+    const nG = box === "manual" ? 6 : 8;
+    const shifts = []; for (let i = 1; i < nG; i++) shifts.push(vmax * 3.6 * Math.pow(i / nG, 0.8));
+    // luchtweerstand afgeleid van topsnelheid: vermogen = weerstand bij vmax
+    const P = hp * 735.5 * loss;
+    // luchtweerstand: standaard sportauto (0,7 m²); lager als de opgegeven topsnelheid anders onhaalbaar is
+    const cdaTop = (P - 0.012 * kg * G * vmax) / (0.5 * 1.2 * vmax ** 3) * 0.95;
+    const CdA = Math.max(0.3, Math.min(0.7, cdaTop));
+    return { name: c.name || "", P, m: kg, mu, drive: df, CdA, crr: 0.012, vmax: vmax * 1.01, shifts, shiftT, launch0: c.launch0 != null ? c.launch0 : 0.8 };
+  }
+  // Theoretische tijden (geen sensorruis). stop: {stopV (m/s)} of {stopD (m)}
+  function predict(model, stop) {
+    const sim = simulate(model, Object.assign({ hz: 1, imu: false, idle: 0.01, stopV: 0, stopD: 0, gpsNoise: 0 }, stop));
+    return sim.truth;
+  }
+
+  return { carModel, predict, G, KMH, MPH, SPEED_PAIRS, DISTANCES, ROLLOUT_M, analyze, simulate, SIM_CARS, haversine, pchip, linInterp };
 });

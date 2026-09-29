@@ -10,5 +10,5 @@
     <path d="M-52 52L96 -96" stroke="#fff" stroke-width="22" stroke-linecap="round"/>
     <circle r="30" fill="#fff"/><circle r="13" fill="#ff2f78"/>
   </g>
-  <text x="256" y="452" text-anchor="middle" font-family="Impact, 'Arial Narrow', sans-serif" font-size="62" letter-spacing="6" fill="#fff">LAUNCH</text>
+  <text x="256" y="452" text-anchor="middle" font-family="Impact, 'Arial Narrow', sans-serif" font-size="54" letter-spacing="4" fill="#fff">SCREAM<tspan fill="#ff2f78">TIME</tspan></text>
 </svg>

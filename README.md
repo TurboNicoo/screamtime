@@ -1,4 +1,4 @@
-# Screamer Launch
+# ScreamTime by Street Screamer
 
 0–500 km/u acceleratietimer in Street Screamer-stijl (Dragy/Launchly-achtig), als installeerbare PWA.
 

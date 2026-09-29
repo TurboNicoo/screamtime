@@ -1,7 +1,7 @@
 /* Screamer Launch — app (UI, meet-statemachine, gauges, resultaten). */
 (function () {
   "use strict";
-  const VERSION = "1.0.0";
+  const VERSION = "1.1.0";
   const KEY = "screamerlaunch_v1";
   const E = window.Engine, SR = window.Sources;
   const $ = (s, r = document) => r.querySelector(s);
@@ -14,7 +14,7 @@
   const DEFAULT = {
     v: 1,
     settings: { unit: "kmh", gauge: "screamer", source: "phone", simCar: "screamer", usbHz: 25, usbBaud: 38400, rollout: false, sound: true, vibe: true, wake: true, hudMirror: true },
-    cars: [{ id: "ss", name: "Street Screamer", make: "Mercedes-AMG C63 S", year: "", hp: 840, nm: 1190, kg: 1950, photo: "img/car-hood-purple.jpg", notes: "" }],
+    cars: [{ id: "ss", name: "Street Screamer", make: "Mercedes-AMG C63 S", year: "", hp: 840, nm: 1190, kg: 1950, drive: "rwd", gearbox: "auto", tires: "street", vmax: 320, factory0100: "", photo: "img/car-hood-purple.jpg", logo: "", gauge: "default", accent: "#ff2f78", notes: "" }],
     activeCar: "ss", mode: "speed", sel: { speed: "0-100", dist: "1/4" }, custom: [], runs: [], backupAt: 0,
   };
   function load() {
@@ -329,6 +329,17 @@
   }
 
   // ================= gauge =================
+  const LOGOS = {};
+  function carLogo(c) {
+    if (!c || !c.logo) return null;
+    if (!LOGOS[c.id] || LOGOS[c.id].src !== c.logo) { const im = new Image(); im.src = c.logo; LOGOS[c.id] = im; }
+    return LOGOS[c.id];
+  }
+  function gaugeOpts() {
+    const sim = S.settings.source === "sim", c = activeCar();
+    const style = !sim && c.gauge && c.gauge !== "default" ? c.gauge : S.settings.gauge;
+    return { style, accent: c.accent, logo: sim ? null : carLogo(c) };
+  }
   const MAXES = { kmh: [[80, 10], [120, 20], [160, 20], [200, 20], [240, 40], [280, 40], [320, 40], [400, 50], [500, 50], [600, 100]], mph: [[60, 10], [80, 10], [100, 20], [140, 20], [180, 20], [200, 20], [250, 50], [300, 50], [350, 50]] };
   const pickMax = (need) => { const L = MAXES[unit()]; return L.find((m) => m[0] >= need) || L[L.length - 1]; };
   const GA = { v: 0, max: 160, want: [160, 20], trail: [], sparks: [], last: performance.now(), flash: 0 };
@@ -353,6 +364,25 @@
     return "rgb(255,214,140)";
   };
 
+  // Kleurenpaletten voor de 'klassieke' wijzertellers (incl. merk-geïnspireerde stijlen, zonder logo's).
+  const PAL = {
+    classic: { disc: ["#221338", "#0f0819", "#06030b"], ring: "rgba(193,132,255,.32)", track: "rgba(255,255,255,.06)", tick: "rgba(244,238,251,.62)", tickOn: "#fff", hot: "#e2264d", label: "rgba(244,238,251,.9)", digits: "#fff", unit: "rgba(173,158,196,.8)", needle: ["#fff", "#e2264d"], zone: "rgba(226,38,77,.5)" },
+    rosso: { disc: ["#b3122a", "#6d0a18", "#2a040a"], ring: "rgba(255,214,140,.4)", track: "rgba(0,0,0,.18)", tick: "rgba(255,240,240,.75)", tickOn: "#fff", hot: "#ffd68c", label: "#fff", digits: "#fff", unit: "rgba(255,220,220,.8)", needle: ["#fff", "#ffd68c"], zone: "rgba(255,214,140,.45)" },
+    wit: { disc: ["#f4f1f8", "#d9d3e3", "#9d95ad"], ring: "rgba(20,12,30,.35)", track: "rgba(20,12,30,.08)", tick: "rgba(20,12,30,.7)", tickOn: "#000", hot: "#e2264d", label: "#1a1024", digits: "#1a1024", unit: "rgba(26,16,36,.7)", needle: ["#ff5a1f", "#ff2f00"], zone: "rgba(226,38,77,.5)" },
+    affalterbach: { disc: ["#34343a", "#16161a", "#050506"], ring: "rgba(210,210,220,.55)", track: "rgba(255,255,255,.07)", tick: "#bfbfc9", tickOn: "#fff", hot: "#e10600", label: "#ececf2", digits: "#fff", unit: "#9a9aa6", needle: ["#f2f2f2", "#e10600"], zone: "rgba(225,6,0,.5)", carbon: true },
+    munchen: { disc: ["#1d2536", "#0c1018", "#04060a"], ring: "rgba(90,150,230,.5)", track: "rgba(255,255,255,.06)", tick: "#d6dcea", tickOn: "#fff", hot: "#e4002b", label: "#e8ecf5", digits: "#fff", unit: "#8e9ab3", needle: ["#ff7a1a", "#ff5a00"], zone: "rgba(228,0,43,.5)", stripes: ["#5ab4e5", "#1c3f94", "#e4002b"] },
+    maranello: { disc: ["#ffd84a", "#f2b705", "#a87600"], ring: "#222", track: "rgba(0,0,0,.12)", tick: "rgba(0,0,0,.75)", tickOn: "#000", hot: "#c00000", label: "#111", digits: "#111", unit: "rgba(0,0,0,.65)", needle: ["#c00000", "#c00000"], zone: "rgba(204,0,0,.5)" },
+    zuffenhausen: { disc: ["#1c1c1c", "#0d0d0d", "#000"], ring: "rgba(255,255,255,.35)", track: "rgba(255,255,255,.06)", tick: "#e6e6e6", tickOn: "#fff", hot: "#d5001c", label: "#f2f2f2", digits: "#fff", unit: "#9b9b9b", needle: ["#fff", "#d5001c"], zone: "rgba(213,0,28,.45)" },
+    santagata: { disc: ["#141a0e", "#090c06", "#020302"], ring: "rgba(184,255,60,.5)", track: "rgba(184,255,60,.07)", tick: "#a8e84a", tickOn: "#d9ff8a", hot: "#ff8a00", label: "#e8ffd0", digits: "#b8ff3c", unit: "#7f9a60", needle: ["#fff", "#ff8a00"], zone: "rgba(255,138,0,.5)", hex: true },
+  };
+  function gaugePal(style, accent) {
+    if (style === "eigen") {
+      const a = accent || "#ff2f78";
+      return Object.assign({}, PAL.classic, { ring: a + "88", hot: a, needle: ["#fff", a], zone: a + "80", tickOn: "#fff" });
+    }
+    return PAL[style];
+  }
+
   function drawGauge(ctx, W, o) {
     const cx = W / 2, cy = W / 2, R = W * 0.46, a0 = Math.PI * 0.75, sweep = Math.PI * 1.5;
     const ang = (v) => a0 + sweep * Math.max(0, Math.min(1.02, v / o.max));
@@ -362,7 +392,7 @@
     ctx.save();
     const fontD = (px) => `${px}px Anton, Impact, sans-serif`;
     const style = o.style;
-    const CL = style === "classic" || style === "rosso" || style === "wit", light = style === "wit";
+    const pal = gaugePal(style, o.accent), CL = !!pal;
     if (style === "gforce") {
       const gg = o.g || { lat: TEL.latG, lon: TEL.lonG, trail: TEL.trail };
       drawGBall(ctx, cx, cy, R * 0.97, gg.lat, gg.lon, gg.trail, { solid: true });
@@ -380,12 +410,19 @@
     // achtergrondschijf
     const g = ctx.createRadialGradient(cx, cy * 0.85, R * 0.05, cx, cy, R * 1.06);
     if (style === "hyper") { g.addColorStop(0, "rgba(40,20,60,.55)"); g.addColorStop(1, "rgba(7,4,13,0)"); }
-    else if (style === "rosso") { g.addColorStop(0, "#b3122a"); g.addColorStop(0.7, "#6d0a18"); g.addColorStop(1, "#2a040a"); }
-    else if (light) { g.addColorStop(0, "#f4f1f8"); g.addColorStop(0.75, "#d9d3e3"); g.addColorStop(1, "#9d95ad"); }
+    else if (pal) { g.addColorStop(0, pal.disc[0]); g.addColorStop(0.7, pal.disc[1]); g.addColorStop(1, pal.disc[2]); }
     else { g.addColorStop(0, "#221338"); g.addColorStop(0.65, "#0f0819"); g.addColorStop(1, "#06030b"); }
     ctx.beginPath(); ctx.arc(cx, cy, R * 1.05, 0, TAU); ctx.fillStyle = g; ctx.fill();
+    if (pal && (pal.carbon || pal.hex)) { // textuur: carbon-weefsel of hexagons
+      ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R * 1.04, 0, TAU); ctx.clip();
+      const cs = R * (pal.hex ? 0.09 : 0.05);
+      ctx.strokeStyle = pal.hex ? "rgba(184,255,60,.07)" : "rgba(255,255,255,.035)"; ctx.lineWidth = Math.max(1, R * 0.006);
+      if (pal.hex) { for (let yy = cy - R; yy < cy + R; yy += cs * 1.5) for (let xx = cx - R, k = 0; xx < cx + R; xx += cs * 1.732, k++) { const ox = (Math.round((yy - cy + R) / (cs * 1.5)) % 2) * cs * 0.866; ctx.beginPath(); for (let i = 0; i < 6; i++) { const aa = Math.PI / 3 * i + Math.PI / 6; ctx.lineTo(xx + ox + Math.cos(aa) * cs, yy + Math.sin(aa) * cs); } ctx.closePath(); ctx.stroke(); } }
+      else { for (let yy = cy - R; yy < cy + R; yy += cs) for (let xx = cx - R; xx < cx + R; xx += cs) { const f = ((xx + yy) / cs) % 2 < 1; ctx.fillStyle = f ? "rgba(255,255,255,.028)" : "rgba(0,0,0,.12)"; ctx.fillRect(xx, yy, cs, cs); } }
+      ctx.restore();
+    }
     if (style !== "hyper") {
-      ctx.lineWidth = Math.max(1, W * 0.004); ctx.strokeStyle = "rgba(193,132,255,.32)"; ctx.stroke();
+      ctx.lineWidth = Math.max(1, W * 0.004); ctx.strokeStyle = pal ? pal.ring : "rgba(193,132,255,.32)"; ctx.stroke();
       ctx.beginPath(); ctx.arc(cx, cy, R * 1.05 - W * 0.012, 0, TAU); ctx.strokeStyle = "rgba(255,255,255,.04)"; ctx.stroke();
     }
     if (GA.flash > 0 && o.live) { ctx.beginPath(); ctx.arc(cx, cy, R * 1.05, 0, TAU); ctx.strokeStyle = `rgba(255,47,120,${GA.flash * 0.8})`; ctx.lineWidth = W * 0.012; ctx.shadowColor = "#ff2f78"; ctx.shadowBlur = W * 0.06 * GA.flash; ctx.stroke(); ctx.shadowBlur = 0; }
@@ -406,9 +443,9 @@
       }
       ctx.shadowBlur = 0;
     } else {
-      arcPath(ctx, cx, cy, bandR, a0, a0 + sweep); ctx.lineWidth = bandW; ctx.strokeStyle = light ? "rgba(20,12,30,.08)" : "rgba(255,255,255,.06)"; ctx.stroke();
+      arcPath(ctx, cx, cy, bandR, a0, a0 + sweep); ctx.lineWidth = bandW; ctx.strokeStyle = pal ? pal.track : "rgba(255,255,255,.06)"; ctx.stroke();
       if (tgtV && tgtV < o.max) {
-        arcPath(ctx, cx, cy, bandR, ang(tgtV), a0 + sweep); ctx.strokeStyle = style === "rosso" ? "rgba(255,214,140,.45)" : CL ? "rgba(226,38,77,.5)" : "rgba(255,47,120,.2)"; ctx.stroke();
+        arcPath(ctx, cx, cy, bandR, ang(tgtV), a0 + sweep); ctx.strokeStyle = pal ? pal.zone : "rgba(255,47,120,.2)"; ctx.stroke();
       }
       if (o.v > 0.2 && !CL) {
         const cg = ctx.createConicGradient ? ctx.createConicGradient(a0, cx, cy) : null;
@@ -433,14 +470,14 @@
         const r1 = major ? R * (style === "villain" ? 0.95 : 0.9) : R * 0.935, r2 = tickR;
         ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
         ctx.lineWidth = major ? R * 0.022 : R * 0.009; ctx.lineCap = "round";
-        ctx.strokeStyle = hot ? (style === "rosso" ? "#ffd68c" : CL ? "#e2264d" : "#ff4f8a") : light ? (passed && o.v > 0 ? "#000" : "rgba(20,12,30,.7)") : passed && o.v > 0 ? "#fff" : "rgba(244,238,251,.62)";
+        ctx.strokeStyle = pal ? (hot ? pal.hot : passed && o.v > 0 ? pal.tickOn : pal.tick) : hot ? "#ff4f8a" : passed && o.v > 0 ? "#fff" : "rgba(244,238,251,.62)";
         ctx.stroke(); ctx.lineCap = "butt";
       }
       if (major && W > 140) {
         const lr = style === "villain" ? R * 0.64 : style === "hyper" ? R * 0.76 : R * 0.69;
         ctx.font = style === "hyper" ? `700 ${R * 0.075}px "JetBrains Mono", monospace` : fontD(R * (o.max >= 400 ? 0.082 : 0.095));
         ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillStyle = hot ? (style === "rosso" ? "#ffd68c" : CL ? "#e2264d" : "#ff5a8f") : light ? "#1a1024" : "rgba(244,238,251,.9)";
+        ctx.fillStyle = pal ? (hot ? pal.hot : pal.label) : hot ? "#ff5a8f" : "rgba(244,238,251,.9)";
         ctx.fillText(String(Math.round(v)), cx + Math.cos(a) * lr, cy + Math.sin(a) * lr);
       }
     }
@@ -454,6 +491,15 @@
       ctx.fillStyle = `rgba(255,47,120,${pulse})`; ctx.shadowColor = "#ff2f78"; ctx.shadowBlur = R * 0.06; ctx.fill(); ctx.restore();
     }
 
+    if (pal && pal.stripes) { // drie strepen onderin, in de opening van de wijzerplaat
+      pal.stripes.forEach((c, i) => { ctx.beginPath(); ctx.arc(cx, cy, R * (0.93 - i * 0.035), Math.PI * 0.36, Math.PI * 0.64); ctx.strokeStyle = c; ctx.lineWidth = R * 0.025; ctx.stroke(); });
+    }
+    if (o.logo && o.logo.complete && o.logo.naturalWidth && W > 140) { // eigen merklogo van de gebruiker
+      const lw = R * 0.5, lh = R * 0.24, sc2 = Math.min(lw / o.logo.naturalWidth, lh / o.logo.naturalHeight);
+      const dw = o.logo.naturalWidth * sc2, dh = o.logo.naturalHeight * sc2;
+      const ly = style === "villain" || style === "hyper" ? cy - R * 0.45 : cy - R * 0.36;
+      ctx.globalAlpha = 0.92; ctx.drawImage(o.logo, cx - dw / 2, ly - dh / 2, dw, dh); ctx.globalAlpha = 1;
+    }
     // centrale cijfers
     const digits = String(Math.round(o.v));
     if (style === "villain" || style === "hyper") {
@@ -477,9 +523,10 @@
       }
     } else {
       ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
-      ctx.font = fontD(R * 0.34); ctx.fillStyle = light ? "#1a1024" : "#fff"; ctx.shadowColor = light ? "transparent" : "rgba(255,47,120,.6)"; ctx.shadowBlur = R * 0.08;
+      const lightFace = pal && (style === "wit" || style === "maranello");
+      ctx.font = fontD(R * 0.34); ctx.fillStyle = pal ? pal.digits : "#fff"; ctx.shadowColor = lightFace ? "transparent" : "rgba(255,47,120,.6)"; ctx.shadowBlur = R * 0.08;
       ctx.fillText(digits, cx, cy + R * 0.52); ctx.shadowBlur = 0;
-      ctx.font = `500 ${R * 0.075}px Inter, sans-serif`; ctx.fillStyle = light ? "rgba(26,16,36,.7)" : style === "rosso" ? "rgba(255,220,220,.8)" : "rgba(173,158,196,.8)";
+      ctx.font = `500 ${R * 0.075}px Inter, sans-serif`; ctx.fillStyle = pal ? pal.unit : "rgba(173,158,196,.8)";
       ctx.fillText(o.unit.split("").join(" "), cx, cy + R * 0.66);
     }
 
@@ -495,8 +542,7 @@
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
       const L = R * 0.82, b = R * 0.028;
       const ng = ctx.createLinearGradient(-R * 0.14, 0, L, 0);
-      if (light) { ng.addColorStop(0, "#ff5a1f"); ng.addColorStop(1, "#ff2f00"); }
-      else if (CL) { ng.addColorStop(0, "#fff"); ng.addColorStop(0.6, "#fff"); ng.addColorStop(0.62, style === "rosso" ? "#ffd68c" : "#e2264d"); ng.addColorStop(1, style === "rosso" ? "#ffd68c" : "#e2264d"); }
+      if (pal) { ng.addColorStop(0, pal.needle[0]); ng.addColorStop(0.6, pal.needle[0]); ng.addColorStop(0.62, pal.needle[1]); ng.addColorStop(1, pal.needle[1]); }
       else { ng.addColorStop(0, "#fff"); ng.addColorStop(0.55, "#fff"); ng.addColorStop(0.8, "#ff7a3d"); ng.addColorStop(1, "#ff2f78"); }
       ctx.beginPath(); ctx.moveTo(-R * 0.14, -b * 1.2); ctx.lineTo(L, -b * 0.25); ctx.lineTo(L, b * 0.25); ctx.lineTo(-R * 0.14, b * 1.2); ctx.closePath();
       ctx.fillStyle = ng; ctx.shadowColor = "rgba(255,47,120,.9)"; ctx.shadowBlur = R * 0.07; ctx.fill(); ctx.restore(); ctx.shadowBlur = 0;
@@ -555,7 +601,7 @@
       const accel = SRC.prevFix && SRC.lastFix ? (SRC.lastFix.v - SRC.prevFix.v) / Math.max(0.04, (SRC.lastFix.t - SRC.prevFix.t) / 1000) : 0;
       if (running && accel > 1 && GA.v > 1) {
         const n = Math.min(6, 1 + accel / 3);
-        const bandR = S.settings.gauge === "hyper" ? R * 0.9 : R * 0.84;
+        const bandR = gaugeOpts().style === "hyper" ? R * 0.9 : R * 0.84;
         for (let i = 0; i < n; i++) {
           const x = gSize / 2 + Math.cos(a) * bandR, y = gSize / 2 + Math.sin(a) * bandR;
           const sp = 60 + Math.random() * 220, dir = a + Math.PI * 0.5 + (Math.random() - 0.5) * 1.3;
@@ -566,7 +612,7 @@
       for (const p of GA.sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt; p.vx *= 0.985; p.life -= dt * 1.8; }
       GA.sparks = GA.sparks.filter((p) => p.life > 0);
       if (GA.sparks.length > 220) GA.sparks.splice(0, GA.sparks.length - 220);
-      drawGauge(gCtx, gSize, { v: GA.v, max: GA.max, step: GA.want[1], target: T.type === "speed" ? T.to : null, style: S.settings.gauge, unit: uLbl(), trail: GA.trail.slice(0, -1), sparks: GA.sparks, live: true });
+      drawGauge(gCtx, gSize, Object.assign(gaugeOpts(), { v: GA.v, max: GA.max, step: GA.want[1], target: T.type === "speed" ? T.to : null, unit: uLbl(), trail: GA.trail.slice(0, -1), sparks: GA.sparks, live: true }));
       // live getallen
       let tEl = 0;
       if (running) tEl = (now - M.t0) / 1000;
@@ -689,7 +735,8 @@
       return `<div class="card car ${c.id === S.activeCar ? "active" : ""}"><div class="bg" style="background-image:url('${esc(c.photo || "img/car-hood-purple.jpg")}')"></div>
         ${c.id === S.activeCar ? `<span class="tag gold badge">ACTIEF</span>` : ""}
         <div class="acts">${c.id !== S.activeCar ? `<button data-pick="${c.id}">Kies</button>` : ""}<button data-edit="${c.id}">Bewerk</button></div>
-        <h3>${esc(c.name)}</h3><div class="mk">${esc([c.make, c.year].filter(Boolean).join(" · "))}</div>
+        ${c.logo ? `<img class="car-logo" src="${esc(c.logo)}" alt="">` : ""}
+        <h3>${esc(c.name)}</h3><div class="mk">${esc([c.make, c.year, { rwd: "achterwiel", awd: "vierwiel", fwd: "voorwiel" }[c.drive], { auto: "automaat", dct: "DCT", manual: "handbak" }[c.gearbox]].filter(Boolean).join(" · "))}</div>
         <div class="specs">${c.hp ? `<span>${c.hp} PK</span>` : ""}${c.nm ? `<span>${c.nm} NM</span>` : ""}${c.kg ? `<span>${c.kg} KG</span>` : ""}${c.hp && c.kg ? `<span>${(c.kg / c.hp).toFixed(2)} KG/PK</span>` : ""}<span>${n} RUNS</span></div>
         ${c.notes ? `<div class="mk" style="margin-top:8px">${esc(c.notes)}</div>` : ""}</div>`;
     }).join("");
@@ -703,7 +750,7 @@
 
   function openCarEditor(id) {
     const c = id ? Object.assign({}, S.cars.find((x) => x.id === id)) : { id: null, name: "", make: "", year: "", hp: "", nm: "", kg: "", photo: "", notes: "" };
-    let photo = c.photo;
+    let photo = c.photo, logo = c.logo || "";
     openSheet(`<h2>${id ? "Auto bewerken" : "Auto toevoegen"}</h2>
       <label class="photo-pick" id="pp" style="${photo ? `background-image:url('${esc(photo)}')` : ""}"><input type="file" accept="image/*" id="ppIn" hidden><span style="display:flex;gap:8px;align-items:center;background:rgba(10,7,18,.6);padding:8px 12px;border-radius:10px">${icon("i-cam")}Foto kiezen</span></label>
       <label class="field"><span>Naam</span><input id="fName" value="${esc(c.name)}" placeholder="bijv. Street Screamer"></label>
@@ -711,7 +758,18 @@
       <div class="grid3"><label class="field"><span>Vermogen (pk)</span><input id="fHp" type="number" inputmode="numeric" value="${esc(c.hp)}"></label>
       <label class="field"><span>Koppel (Nm)</span><input id="fNm" type="number" inputmode="numeric" value="${esc(c.nm)}"></label>
       <label class="field"><span>Gewicht (kg)</span><input id="fKg" type="number" inputmode="numeric" value="${esc(c.kg)}"></label></div>
-      <label class="field"><span>Bouwjaar</span><input id="fYear" inputmode="numeric" value="${esc(c.year)}"></label>
+      <div class="grid3" style="grid-template-columns:1fr"><label class="field"><span>Aandrijving</span><select id="fDrive">${[["rwd", "Achterwiel"], ["awd", "Vierwiel"], ["fwd", "Voorwiel"]].map(([v, n]) => `<option value="${v}" ${(c.drive || "rwd") === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="field"><span>Versnellingsbak</span><select id="fBox">${[["auto", "Automaat"], ["dct", "DCT / MCT"], ["manual", "Handgeschakeld"]].map(([v, n]) => `<option value="${v}" ${(c.gearbox || "auto") === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <label class="field"><span>Banden</span><select id="fTires">${[["street", "Straat (zomer)"], ["semi", "Semi-slick"], ["drag", "Drag radial"], ["winter", "Winter"]].map(([v, n]) => `<option value="${v}" ${(c.tires || "street") === v ? "selected" : ""}>${n}</option>`).join("")}</select></label></div>
+      <div class="grid3"><label class="field"><span>Top (km/u)</span><input id="fVmax" type="number" inputmode="numeric" value="${esc(c.vmax)}"></label>
+      <label class="field"><span>Fabriek 0–100</span><input id="fFac" type="number" step="0.1" inputmode="decimal" value="${esc(c.factory0100)}" placeholder="s"></label>
+      <label class="field"><span>Bouwjaar</span><input id="fYear" inputmode="numeric" value="${esc(c.year)}"></label></div>
+      <div class="h-eyebrow" style="margin-top:14px">Jouw teller</div>
+      <div class="logo-row"><label class="logo-pick" id="lp">${logo ? `<img src="${esc(logo)}" alt="">` : `${icon("i-upload")}<span>Eigen logo</span>`}<input type="file" accept="image/*" id="lpIn" hidden></label>
+        <div style="flex:1;min-width:0"><label class="field"><span>Tellerstijl</span><select id="fGauge"><option value="default">Volg instellingen</option>${GAUGE_STYLES.concat([["eigen", "Eigen kleur"]]).map(([v, n]) => `<option value="${v}" ${c.gauge === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        <label class="field"><span>Accentkleur</span><input id="fAccent" type="color" value="${esc(c.accent || "#ff2f78")}"></label></div></div>
+      <canvas id="gPrev" width="360" height="360" class="gprev"></canvas>
+      <p class="note">Logo: upload een PNG met transparante achtergrond. Het blijft alleen op deze telefoon. ${logo ? `<button class="linkbtn" id="lpDel">Logo verwijderen</button>` : ""}</p>
       <label class="field"><span>Modificaties / notities</span><textarea id="fNotes" placeholder="bijv. Stage 3, downpipes, E85">${esc(c.notes)}</textarea></label>
       <button class="btn pri" id="fSave">Opslaan</button>
       ${id && S.cars.length > 1 ? `<div style="height:10px"></div><button class="btn danger" id="fDel">${icon("i-trash")}Auto verwijderen</button>` : ""}`, (b) => {
@@ -719,10 +777,29 @@
         const f = e.target.files[0]; if (!f) return;
         try { photo = await shrinkImage(f, 1000, 0.8); $("#pp", b).style.backgroundImage = `url('${photo}')`; } catch (err) { toast("Kon foto niet lezen"); }
       };
+      const prev = () => {
+        const cv = $("#gPrev", b); if (!cv) return; const x = cv.getContext("2d"); x.setTransform(2, 0, 0, 2, 0, 0);
+        const gsel = $("#fGauge", b).value, st = gsel === "default" ? S.settings.gauge : gsel;
+        let im = null; if (logo) { im = new Image(); im.src = logo; im.onload = () => { if (im === prevImg) draw(); }; }
+        prevImg = im;
+        const draw = () => drawGauge(x, 180, { v: 138, max: 200, step: 20, target: 100, style: st, unit: uLbl(), trail: [], sparks: [], accent: $("#fAccent", b).value, logo: im, g: { lat: 0.3, lon: 0.7, trail: [] } });
+        draw();
+      };
+      let prevImg = null;
+      prev();
+      $("#fGauge", b).onchange = prev; $("#fAccent", b).oninput = prev;
+      $("#lpIn", b).onchange = async (e) => {
+        const f = e.target.files[0]; if (!f) return;
+        try { logo = await shrinkImage(f, 400, 0.9, "image/png"); $("#lp", b).innerHTML = `<img src="${logo}" alt=""><input type="file" accept="image/*" id="lpIn2" hidden>`; if ($("#fGauge", b).value === "default") $("#fGauge", b).value = S.settings.gauge; prev(); } catch (err) { toast("Kon logo niet lezen"); }
+      };
+      const ld = $("#lpDel", b); if (ld) ld.onclick = (e) => { e.preventDefault(); logo = ""; $("#lp", b).innerHTML = `${icon("i-upload")}<span>Eigen logo</span>`; prev(); };
       $("#fSave", b).onclick = () => {
         const name = $("#fName", b).value.trim(); if (!name) { toast("Geef je auto een naam"); return; }
         const num = (s) => { const v = parseInt($(s, b).value, 10); return isFinite(v) ? v : ""; };
-        const car = { id: id || "c" + Date.now().toString(36), name, make: $("#fMake", b).value.trim(), year: $("#fYear", b).value.trim(), hp: num("#fHp"), nm: num("#fNm"), kg: num("#fKg"), photo, notes: $("#fNotes", b).value.trim() };
+        const fac = parseFloat(($("#fFac", b).value || "").replace(",", "."));
+        const car = { id: id || "c" + Date.now().toString(36), name, make: $("#fMake", b).value.trim(), year: $("#fYear", b).value.trim(), hp: num("#fHp"), nm: num("#fNm"), kg: num("#fKg"),
+          drive: $("#fDrive", b).value, gearbox: $("#fBox", b).value, tires: $("#fTires", b).value, vmax: num("#fVmax"), factory0100: isFinite(fac) ? fac : "",
+          photo, logo, gauge: $("#fGauge", b).value, accent: $("#fAccent", b).value, notes: $("#fNotes", b).value.trim() };
         if (id) S.cars[S.cars.findIndex((x) => x.id === id)] = car; else { S.cars.push(car); S.activeCar = car.id; }
         save(); closeSheet(); renderAll();
       };
@@ -734,10 +811,10 @@
       };
     });
   }
-  function shrinkImage(file, max, q) {
+  function shrinkImage(file, max, q, type) {
     return new Promise((res, rej) => {
       const fr = new FileReader();
-      fr.onload = () => { const im = new Image(); im.onload = () => { const s = Math.min(1, max / Math.max(im.width, im.height)); const c = document.createElement("canvas"); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL("image/jpeg", q)); }; im.onerror = rej; im.src = fr.result; };
+      fr.onload = () => { const im = new Image(); im.onload = () => { const s = Math.min(1, max / Math.max(im.width, im.height)); const c = document.createElement("canvas"); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL(type || "image/jpeg", q)); }; im.onerror = rej; im.src = fr.result; };
       fr.onerror = rej; fr.readAsDataURL(file);
     });
   }
@@ -799,6 +876,123 @@
     return short ? d.toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "2-digit" }) : d.toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" }) + " " + d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
   }
 
+  // ================= tips: zo word je sneller =================
+  const SIM_META = {
+    screamer: { hp: 840, nm: 1190, kg: 1950, drive: "rwd", gearbox: "auto", tires: "street" },
+    super: { hp: 800, nm: 720, kg: 1480, drive: "rwd", gearbox: "dct", tires: "semi" },
+    hyper: { hp: 1600, nm: 1500, kg: 1420, drive: "awd", gearbox: "dct", tires: "semi" },
+  };
+  function specFor(run) {
+    if (run.sim) {
+      const k = run.carId.split(":")[1] || "screamer";
+      return { car: SIM_META[k], model: (o) => Object.assign({}, E.SIM_CARS[k], { launch0: 0.8 }, o || {}), sim: true };
+    }
+    const c = S.cars.find((x) => x.id === run.carId);
+    if (!c || !c.hp || !c.kg) return null;
+    return { car: c, model: (o) => E.carModel(Object.assign({}, c, o || {})) };
+  }
+  function predTime(truth, key, unitName) {
+    const toK = (x) => Math.round(unitName === "mph" ? x * 1.609344 : x);
+    if (key.startsWith("S:")) {
+      const [a, b] = key.split(":")[2].split("-").map(Number);
+      const tb = truth.cross[toK(b)], ta = a ? truth.cross[toK(a)] : truth.t0;
+      return tb != null && ta != null ? (tb - ta) / 1000 : null;
+    }
+    const d = truth.dist[key.slice(2)];
+    return d ? (d.t - truth.t0) / 1000 : null;
+  }
+  function stopFor(key, unitName) {
+    if (key.startsWith("S:")) { const b = +key.split("-")[1]; return { stopV: ((unitName === "mph" ? b * 1.609344 : b) + 4) / 3.6 }; }
+    const D = E.DISTANCES.find((x) => "D:" + x.id === key); return { stopD: (D ? D.m : 402) + 15 };
+  }
+  function shiftDips(tr) { // schakelmomenten: korte dalen in de versnelling
+    const A = [];
+    for (let i = 0, j = 0; i < tr.length; i++) { while (j < tr.length - 1 && tr[j][0] < tr[i][0] + 0.12) j++; const dt = tr[j][0] - tr[i][0]; if (dt > 0.05) A.push([tr[i][0], (tr[j][1] - tr[i][1]) / dt, tr[i][1]]); }
+    const dips = [];
+    for (let i = 3; i < A.length - 3; i++) {
+      if (A[i][2] < 6) continue;
+      const around = Math.max(...A.slice(Math.max(0, i - 12), i - 2).map((x) => x[1]), ...A.slice(i + 3, i + 13).map((x) => x[1]));
+      if (A[i][1] < around * 0.55 && A[i][1] <= A[i - 1][1] && A[i][1] <= A[i + 1][1] && (!dips.length || A[i][0] - dips[dips.length - 1].t > 0.6)) {
+        let k0 = i, k1 = i; while (k0 > 0 && A[k0][1] < around * 0.8) k0--; while (k1 < A.length - 1 && A[k1][1] < around * 0.8) k1++;
+        dips.push({ t: A[i][0], ms: Math.round((A[k1][0] - A[k0][0]) * 1000) });
+      }
+    }
+    return dips;
+  }
+  function tipsFor(run) {
+    const p = run.primary, r = run.res, out = [];
+    if (!p) return { head: null, tips: [{ ic: "i-flag", t: "Doel niet gehaald", x: "Houd het gas vol tot voorbij de doelsnelheid of -afstand. De meting stopt als je meer dan 15 km/u terugvalt." }] };
+    const sp = specFor(run);
+    const u = run.unit;
+    let head = null;
+    if (sp) {
+      const stop = stopFor(p.key, u);
+      const base = E.predict(sp.model(), stop);
+      const pt = predTime(base, p.key, u);
+      const gain = (o, extra) => { const t = predTime(E.predict(sp.model(o), stop), p.key, u); return t != null && pt != null ? pt - t : 0; };
+      if (pt != null) {
+        const gap = p.time - pt;
+        head = { pt, gap, factory: p.key === `S:kmh:0-100` && sp.car.factory0100 ? +sp.car.factory0100 : null };
+        // launch-fase
+        const s50m = r.speedSplits.find((s) => s.from === 0 && s.to === (u === "mph" ? 30 : 50));
+        const p50 = predTime(base, u === "mph" ? `S:mph:0-30` : `S:kmh:0-50`, u);
+        const launchGap = s50m && p50 != null ? s50m.time - p50 : null;
+        const drive = sp.car.drive || "rwd", nm = +sp.car.nm || 0;
+        const muExp = ({ street: 1.15, semi: 1.35, drag: 1.7, winter: 0.8 }[sp.car.tires || "street"]) * ({ rwd: 0.73, awd: 1, fwd: 0.47 }[drive]);
+        if (r.standing && launchGap != null && launchGap > 0.08) {
+          const how = {
+            rwd: `Achterwielaandrijving${nm > 600 ? ` met ${nm} Nm` : ""}: grip is de grens. Gebruik launch control (Race Start), launch met iets lagere toeren, zet ESP op Sport in plaats van helemaal uit en rij de achterbanden warm.`,
+            awd: "Vierwielaandrijving: gebruik launch control en laat de elektronica het werk doen. Houd rem en gas vast tot de toeren stabiel zijn en laat de rem in één keer los.",
+            fwd: "Voorwielaandrijving: wielspin kost hier de meeste tijd. Bouw het gas geleidelijk op in de eerste meters, launch met lage toeren en laat de tractiecontrole aan.",
+          }[drive];
+          out.push({ ic: "i-flame", t: "Tijd te winnen bij de launch", x: `0–${u === "mph" ? 30 : 50} ${u === "mph" ? "mph" : "km/u"} duurde ${s50m.time.toFixed(2)} s; haalbaar is ≈ ${p50.toFixed(2)} s. ${how}${r.peakG < muExp * 0.8 ? ` Je piek was ${r.peakG.toFixed(2)} G, terwijl ≈ ${muExp.toFixed(2)} G mogelijk is.` : ""}`, g: launchGap });
+        }
+        // banden
+        const next = { winter: "street", street: "semi", semi: "drag" }[sp.car.tires || "street"];
+        if (next && !sp.sim) {
+          const g = gain({ tires: next });
+          if (g > 0.03) out.push({ ic: "i-car", t: { street: "Zomerbanden", semi: "Semi-slicks", drag: "Drag radials" }[next] + " erop", x: { street: "Winterbanden kosten veel grip bij de launch. Op zomerbanden ben je meteen sneller.", semi: "Semi-slicks (bijv. Cup 2 of R888R) geven merkbaar meer grip bij het wegrijden. Op straatbanden helpt het ook om ze op te warmen en de bandenspanning iets te verlagen (binnen veilige grenzen).", drag: "Drag radials zijn de ultieme launchbanden. Alleen voor de dragstrip." }[next], g });
+        }
+        // schakelen
+        // alleen betrouwbaar met IMU-fusie of snelle GPS; bij 1 Hz verzint de interpolatie vorm tussen de fixes
+        const dips = r.fusion === "imu" || r.hz >= 8 ? shiftDips(r.trace).filter((d) => d.ms <= 1000) : [];
+        if (dips.length) {
+          const avg = Math.round(dips.reduce((a, d) => a + d.ms, 0) / dips.length);
+          const box = sp.car.gearbox || "auto";
+          const g = box === "manual" ? gain({ gearbox: "dct" }) : Math.max(0, dips.length * avg / 1000 * 0.25);
+          out.push({ ic: "i-gauge", t: `${dips.length} schakelmoment${dips.length > 1 ? "en" : ""} · ≈ ${avg} ms per schakeling`, x: box === "manual" ? "Schakel sneller en koppel korter. Bij een handbak zit hier veel tijd, dus oefen powershifts niet te agressief." : "Zet de bak in de snelste modus (Race/S+) en laat hem vlak voor de begrenzer opschakelen. Schakel je handmatig, doe het dan net voor de begrenzer, niet erop.", g });
+        }
+        // gewicht
+        const gw = gain({ kg: (+sp.car.kg || 1600) - 50 });
+        if (gw > 0.01) out.push({ ic: "i-trophy", t: "Elke 50 kg telt", x: "Een lege kofferbak, een halve tank en geen passagier schelen al snel 50–80 kg.", g: gw });
+        // vermogensfase
+        const powerGap = launchGap != null ? head.gap - launchGap : head.gap;
+        if (p.key.startsWith("S:") && powerGap > 0.25 && !sp.sim) out.push({ ic: "i-sun", t: "Vermogen blijft achter", x: `Boven de ${u === "mph" ? 30 : 50} ${u === "mph" ? "mph" : "km/u"} verlies je ≈ ${powerGap.toFixed(2)} s op wat ${sp.car.hp} pk zou moeten halen. Controleer: trage schakelmomenten (Race-modus aan), heat soak (laat de motor tussen runs afkoelen), 98/102 RON brandstof en de luchttemperatuur. Of de auto levert minder dan opgegeven.`, g: powerGap });
+      }
+    } else {
+      out.push({ ic: "i-car", t: "Vul je auto aan in de garage", x: "Met pk, gewicht, aandrijving, bak en banden berekent de app wat haalbaar is en waar jij tijd verliest." });
+    }
+    // omstandigheden & meting
+    if (r.slope != null && r.slope > 0.4) out.push({ ic: "i-flag", t: `Je reed bergop (+${r.slope.toFixed(1)}%)`, x: "Een helling kost tijd. Zoek een vlak stuk voor een eerlijke vergelijking.", g: null });
+    if (r.slope != null && r.slope < -0.4) out.push({ ic: "i-flag", t: `Let op: bergaf (${r.slope.toFixed(1)}%)`, x: "Deze tijd is geflatteerd. Voor een echte record: meet op een vlak stuk of rij beide kanten en neem het gemiddelde.", g: null });
+    if (r.hz < 5 && !run.sim) out.push({ ic: "i-sat", t: "Nauwkeuriger meten", x: `Je telefoon-GPS gaf ${r.hz} Hz. Een externe 10–25 Hz ontvanger (u-blox M10 via USB-C of een RaceBox) maakt vooral hoge snelheden veel preciezer.`, g: null });
+    if (r.standing && !r.rolloutMs && p.key.startsWith("D:")) out.push({ ic: "i-info", t: "Vergelijken met de dragstrip?", x: "Zet in Instellingen '1 ft rollout' aan. Dragstrip-tijden starten pas na 30 cm, dat scheelt ≈ 0,2–0,3 s.", g: null });
+    if (head) for (const t of out) if (t.g != null) t.g = Math.min(t.g, Math.max(0, head.gap));
+    out.sort((a, b) => (b.g || 0) - (a.g || 0));
+    return { head, tips: out.slice(0, 6) };
+  }
+  function renderTips(run) {
+    const { head, tips } = tipsFor(run);
+    let h = `<h4>ZO WORD JE SNELLER</h4>`;
+    if (head) {
+      const good = head.gap < 0.06;
+      h += `<div class="pot"><div><span>JOUW TIJD</span><b>${run.primary.time.toFixed(2)} s</b></div><div><span>≈ HAALBAAR</span><b class="fl">${head.pt.toFixed(2)} s</b></div>${head.factory ? `<div><span>FABRIEK</span><b>${head.factory.toFixed(1)} s</b></div>` : `<div><span>MARGE</span><b>${good ? "—" : "−" + Math.max(0, head.gap).toFixed(2) + " s"}</b></div>`}</div>
+        <p class="tipnote">${good ? "🔥 Je zit op het maximum van wat deze auto op papier kan. Sneller gaat alleen met meer grip, minder gewicht of meer vermogen." : `Op basis van ${esc(run.carName)}: vermogen, gewicht, aandrijving, bak en banden. De schatting gaat uit van een perfecte launch op een vlakke weg.`}</p>`;
+    }
+    h += tips.map((t) => `<div class="tip">${icon(t.ic, "i ic")}<div><b>${esc(t.t)}${t.g > 0.01 ? ` <span class="gain">≈ −${t.g.toFixed(2)} s</span>` : ""}</b><p>${esc(t.x)}</p></div></div>`).join("");
+    $("#resTips").innerHTML = h;
+  }
+
   // ================= resultaat-scherm =================
   let curRun = null;
   function showResult(run, fresh, quiet) {
@@ -838,6 +1032,7 @@
     $("#result").classList.add("open");
     $("#result").scrollTop = 0;
     requestAnimationFrame(() => drawChart(run));
+    try { renderTips(run); } catch (e) { console.error(e); $("#resTips").innerHTML = ""; }
     // tijd-teller
     const target = p ? p.time : 0, el = $("#resTime");
     if (fresh && p) {
@@ -927,9 +1122,9 @@
   async function shareRun(run) {
     const c = await makeCard(run), p = run.primary;
     const blob = await new Promise((res) => c.toBlob(res, "image/png"));
-    const file = new File([blob], `screamer-launch-${(p ? p.label : "run").replace(/[^a-z0-9]+/gi, "-")}.png`, { type: "image/png" });
+    const file = new File([blob], `screamtime-${(p ? p.label : "run").replace(/[^a-z0-9]+/gi, "-")}.png`, { type: "image/png" });
     try {
-      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "Screamer Launch", text: `${p ? p.label + " in " + p.time.toFixed(2) + " s" : "Run"} — ${run.carName}` }); return; }
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "ScreamTime", text: `${p ? p.label + " in " + p.time.toFixed(2) + " s" : "Run"} — ${run.carName}` }); return; }
     } catch (e) { if (e && e.name === "AbortError") return; }
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     toast("Afbeelding opgeslagen");
@@ -948,8 +1143,8 @@
     const lg = x.createLinearGradient(60, 0, 380, 0); lg.addColorStop(0, "#ff7a3d"); lg.addColorStop(0.55, "#ff2f78"); lg.addColorStop(1, "#a238ff");
     x.lineWidth = 9; x.lineCap = "round"; x.strokeStyle = lg; x.beginPath(); x.arc(108, 110, 38, Math.PI * 0.75, Math.PI * 2.25); x.stroke();
     x.strokeStyle = "#fff"; x.lineWidth = 6; x.beginPath(); x.moveTo(96, 124); x.lineTo(130, 88); x.stroke();
-    x.font = "44px Anton, Impact"; x.fillStyle = "#fff"; x.textBaseline = "middle"; x.fillText("SCREAMER", 168, 102);
-    x.fillStyle = lg; x.fillText("LAUNCH", 168 + x.measureText("SCREAMER ").width, 102);
+    x.font = "44px Anton, Impact"; x.fillStyle = "#fff"; x.textBaseline = "middle"; x.fillText("SCREAM", 168, 102);
+    x.fillStyle = lg; x.fillText("TIME", 168 + x.measureText("SCREAM").width, 102);
     x.font = "700 15px Inter, sans-serif"; x.fillStyle = "rgba(244,238,251,.7)"; x.fillText("S T R E E T   S C R E A M E R", 170, 138);
     // tijd
     const p = run.primary, uF = run.unit === "mph" ? E.MPH : E.KMH, uL = run.unit === "mph" ? "MPH" : "KM/U";
@@ -961,6 +1156,8 @@
     x.fillText(ts, W / 2 - 30, 880); x.shadowBlur = 0;
     x.font = "90px Anton, Impact"; x.fillStyle = "rgba(244,238,251,.7)"; x.textAlign = "left"; x.fillText("s", W / 2 - 30 + tw / 2 + 10, 880);
     x.textAlign = "center";
+    const lgc = car && car.logo ? await loadImg(car.logo) : null;
+    if (lgc) { const lh = 90, lw = Math.min(260, lh * lgc.width / lgc.height); x.drawImage(lgc, W - 60 - lw, 60, lw, lw * lgc.height / lgc.width); }
     x.font = "700 40px Inter, sans-serif"; x.fillStyle = "#fff"; x.fillText(run.carName, W / 2, 960);
     x.font = "500 26px 'JetBrains Mono', monospace"; x.fillStyle = "rgba(173,158,196,.9)"; x.fillText(fmtDate(run.ts), W / 2, 1004);
     // kpi's
@@ -979,6 +1176,7 @@
   }
 
   // ================= instellingen =================
+  const GAUGE_STYLES = [["screamer", "Screamer"], ["villain", "Villain"], ["hyper", "Hyper"], ["gforce", "G-Force"], ["classic", "Classic"], ["rosso", "Rosso"], ["wit", "Wit"], ["affalterbach", "Affalterbach"], ["munchen", "München"], ["maranello", "Maranello"], ["zuffenhausen", "Zuffenhausen"], ["santagata", "Sant'Agata"]];
   function renderSettings() {
     const k = S.settings.source;
     $("#srcDesc").textContent = { phone: "Telefoon-GPS", usb: "USB-C GNSS-ontvanger", racebox: "RaceBox (Bluetooth)", ble: "Bluetooth NMEA-ontvanger", sim: "Demo-modus" }[k];
@@ -987,7 +1185,7 @@
     $("#setRollout").checked = S.settings.rollout; $("#setSound").checked = S.settings.sound; $("#setVibe").checked = S.settings.vibe; $("#setWake").checked = S.settings.wake;
     $("#ver").textContent = VERSION;
     $("#backupInfo").textContent = S.backupAt ? `Laatste back-up: ${fmtDate(S.backupAt, true)} · ${S.runs.length} runs` : `Nog geen back-up · ${S.runs.length} runs`;
-    const styles = [["screamer", "Screamer"], ["villain", "Villain"], ["hyper", "Hyper"], ["gforce", "G-Force"], ["classic", "Classic"], ["rosso", "Rosso"], ["wit", "Wit"]];
+    const styles = GAUGE_STYLES;
     const list = $("#styleList");
     if (!list.children.length) list.innerHTML = styles.map(([id, n]) => `<button data-st="${id}"><canvas width="192" height="192"></canvas>${n}</button>`).join("");
     $$("button", list).forEach((b) => {
@@ -1004,9 +1202,9 @@
   $("#rowExport").addEventListener("click", async () => {
     S.backupAt = Date.now(); save();
     const blob = new Blob([JSON.stringify(S)], { type: "application/json" });
-    const name = `screamer-launch-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    const name = `screamtime-backup-${new Date().toISOString().slice(0, 10)}.json`;
     const file = new File([blob], name, { type: "application/json" });
-    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "Screamer Launch back-up" }); renderSettings(); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "ScreamTime back-up" }); renderSettings(); return; } } catch (e) { if (e && e.name === "AbortError") return; }
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     renderSettings(); toast("Back-up opgeslagen");
   });
@@ -1131,7 +1329,7 @@
       const type = CAM.rec.mimeType || mt || "video/webm", ext = type.includes("mp4") ? "mp4" : "webm";
       const blob = new Blob(CAM.chunks, { type });
       const d = new Date(), pad = (n) => String(n).padStart(2, "0");
-      CAM.lastVideo = { blob, name: `screamer-launch-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`, type };
+      CAM.lastVideo = { blob, name: `screamtime-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`, type };
       CAM.rec = null; $("#camRec").classList.remove("on");
       const b = $("#camSave"); b.hidden = false; b.querySelector("span").textContent = `Video opslaan (${(blob.size / 1048576).toFixed(0)} MB)`;
     };
@@ -1141,7 +1339,7 @@
   async function saveVideo() {
     const v = CAM.lastVideo; if (!v) return;
     const file = new File([v.blob], v.name, { type: v.type });
-    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "Screamer Launch" }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: "ScreamTime" }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
     const a = document.createElement("a"); a.href = URL.createObjectURL(v.blob); a.download = v.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     toast("Video opgeslagen in Downloads");
   }
@@ -1185,7 +1383,11 @@
     ctx.lineWidth = u * 1.1; ctx.lineCap = "round"; ctx.strokeStyle = lg; ctx.beginPath(); ctx.arc(pad + u * 4.5, top + u * 4.5, u * 4, Math.PI * 0.75, Math.PI * 2.25); ctx.stroke();
     ctx.strokeStyle = "#fff"; ctx.lineWidth = u * 0.7; ctx.beginPath(); ctx.moveTo(pad + u * 3, top + u * 6); ctx.lineTo(pad + u * 6.5, top + u * 2.5); ctx.stroke();
     ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.font = `${u * 5}px Anton, Impact`; ctx.fillStyle = "#fff";
-    ctx.fillText("SCREAMER", pad + u * 11, top + u * 3.4); const w1 = ctx.measureText("SCREAMER ").width; ctx.fillStyle = lg; ctx.fillText("LAUNCH", pad + u * 11 + w1, top + u * 3.4);
+    ctx.fillText("SCREAM", pad + u * 11, top + u * 3.4);
+    const w1 = ctx.measureText("SCREAM").width, w2 = ctx.measureText("TIME").width;
+    ctx.fillStyle = lg; ctx.fillText("TIME", pad + u * 11 + w1, top + u * 3.4);
+    ctx.font = `800 ${u * 1.5}px Inter, sans-serif`; ctx.fillStyle = "rgba(244,238,251,.7)";
+    ctx.fillText("BY STREET SCREAMER", pad + u * 12.5 + w1 + w2, top + u * 4.4);
     const T = curTargetCached();
     const carN = S.settings.source === "sim" ? "Demo · " + E.SIM_CARS[S.settings.simCar].name : activeCar().name;
     // rechtsboven: REC en GPS-status
@@ -1206,6 +1408,11 @@
     while (line.length > 4 && ctx.measureText(line).width > maxW) line = line.slice(0, -2);
     if (line !== `${carN}  ·  ${T.label}`) line = line.trimEnd() + "…";
     ctx.fillText(line, pad + u * 11, top + u * 8);
+    const lgImg = S.settings.source === "sim" ? null : carLogo(activeCar());
+    if (lgImg && lgImg.complete && lgImg.naturalWidth) { // eigen logo linksonder boven de teller
+      const lh = u * 9, lw = Math.min(u * 26, lh * lgImg.naturalWidth / lgImg.naturalHeight);
+      ctx.globalAlpha = 0.95; ctx.drawImage(lgImg, pad, top + u * 12, lw, lw * lgImg.naturalHeight / lgImg.naturalWidth); ctx.globalAlpha = 1;
+    }
 
     const gs = port ? W * 0.44 : H * 0.44; // tellergrootte
     const by = port ? H - pad - u * 20 - gs : H - pad * 0.7 - gs; // staand: boven de knoppen; liggend: in de hoeken
@@ -1232,8 +1439,8 @@
     const gc = CAM.gCv, dpr = 1.5;
     if (gc.width !== Math.round(gs * dpr)) { gc.width = gc.height = Math.round(gs * dpr); }
     const gctx = gc.getContext("2d"); gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const st = S.settings.gauge === "gforce" ? "screamer" : S.settings.gauge;
-    drawGauge(gctx, gs, { v: GA.v, max: GA.max, step: GA.want[1], target: T.type === "speed" ? T.to : null, style: st, unit: uLbl(), trail: GA.trail.slice(0, -1), sparks: [], live: true });
+    const go = gaugeOpts(); if (go.style === "gforce") go.style = "screamer";
+    drawGauge(gctx, gs, Object.assign(go, { v: GA.v, max: GA.max, step: GA.want[1], target: T.type === "speed" ? T.to : null, unit: uLbl(), trail: GA.trail.slice(0, -1), sparks: [], live: true }));
     ctx.globalAlpha = 0.97; ctx.drawImage(gc, gx, by, gs, gs); ctx.globalAlpha = 1;
     // G-bol
     const gr = gs * 0.4;
