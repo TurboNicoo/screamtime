@@ -89,6 +89,7 @@
       const [, u, p] = metric.split(":"); const [a, b] = p.split("-").map(Number);
       return b > a ? ((b - a) * (u === "mph" ? 0.44704 : 1 / 3.6)) / g : Infinity;
     }
+    if (metric.startsWith("B:")) { const [, u, p] = metric.split(":"); const a = +p.split("-")[0]; return (a * (u === "mph" ? 0.44704 : 1 / 3.6)) / (1.6 * 9.80665); }
     const d = { "D:60ft": 18.288, "D:100m": 100, "D:1/8": 201.168, "D:1000ft": 304.8, "D:1/4": 402.336, "D:1/2": 804.672, "D:1km": 1000, "D:1mi": 1609.344 }[metric];
     return d ? Math.sqrt((2 * d) / g) : Infinity;
   }
@@ -142,7 +143,7 @@
         return { ok: true, id: ex.id, existed: true };
       }
       runId = ins.data.id;
-      const good = splits.filter((s) => s.time_s >= minSplitTime(s.metric) && s.time_s <= 120).map((s) => ({ run_id: runId, user_id: userId(), metric: s.metric, time_s: +s.time_s.toFixed(3) }));
+      const good = splits.filter((s) => s.time_s >= minSplitTime(s.metric) && s.time_s <= 120).map((s) => Object.assign({ run_id: runId, user_id: userId(), metric: s.metric, time_s: +s.time_s.toFixed(3) }, s.dist_m != null ? { dist_m: +s.dist_m.toFixed(2) } : {}));
       if (good.length) {
         const r = await sb.from("splits").insert(good);
         if (r.error) for (const s of good) await sb.from("splits").insert(s); // los proberen: één afwijzing mag de rest niet tegenhouden
@@ -176,25 +177,52 @@
     },
     async removeFriend(id) { await init(); await q(sb.from("friends").delete().eq("user_id", userId()).eq("friend_id", id)); },
 
-    // Ranglijst voor een onderdeel. scope: "all" of "friends".
-    async board(metric, scope) {
+    // Ranglijst voor een onderdeel. scope: "all" of "friends"; cls: vermogensklasse (k300/k600/k900/k900p) of leeg.
+    async board(metric, scope, cls) {
       await init();
-      let query = metric === "top"
-        ? sb.from("top_speeds").select("*").order("peak_kmh", { ascending: false })
-        : sb.from("best_times").select("*").eq("metric", metric).order("time_s", { ascending: true });
+      let query;
+      if (metric === "top") query = sb.from(cls ? "top_speeds_class" : "top_speeds").select("*").order("peak_kmh", { ascending: false });
+      else if (metric.startsWith("B:")) query = sb.from("best_brakes").select("*").eq("metric", metric).order("dist_m", { ascending: true });
+      else query = sb.from(cls ? "best_times_class" : "best_times").select("*").eq("metric", metric).order("time_s", { ascending: true });
+      if (cls) query = query.eq("class", cls);
       if (scope === "friends") { const ids = await Online.friendIds(); query = query.in("user_id", ids.concat(userId() ? [userId()] : [])); }
       return q(query.limit(100));
     },
-    // Plaats van een tijd in de ranglijst (1 = snelste).
-    async rank(metric, time, scope) {
+    // Plaats in de ranglijst (1 = beste). Voor remmen telt de remweg (value = meters).
+    async rank(metric, value, scope) {
       await init();
-      let query = sb.from("best_times").select("user_id", { count: "exact", head: true }).eq("metric", metric).lt("time_s", time);
+      const brake = metric.startsWith("B:");
+      let query = sb.from(brake ? "best_brakes" : "best_times").select("user_id", { count: "exact", head: true }).eq("metric", metric).lt(brake ? "dist_m" : "time_s", value);
       if (userId()) query = query.neq("user_id", userId());
       if (scope === "friends") { const ids = await Online.friendIds(); if (!ids.length) return null; query = query.in("user_id", ids); }
       const r = await query;
       if (r.error) throw new Error(nl(r.error));
       return (r.count || 0) + 1;
     },
+  };
+  // Verdachte tijd melden (alleen zichtbaar voor de beheerder).
+  Online.report = async (runId, reason) => {
+    await init(); if (!userId()) throw new Error("Log in om te melden");
+    const r = await sb.from("reports").insert({ run_id: runId, reporter: userId(), reason: String(reason).slice(0, 300) });
+    if (r.error && r.error.code !== "23505") throw new Error(nl(r.error));
+  };
+  // Foutmelding uit de app naar de beheerder (max 5 per sessie, geen persoonsgegevens).
+  let errCount = 0; const errSeen = new Set();
+  Online.logError = async (version, message, stack) => {
+    if (!configured() || errCount >= 5) return;
+    const key = String(message).slice(0, 120); if (errSeen.has(key)) return; errSeen.add(key); errCount++;
+    try { await init(); await sb.from("client_errors").insert({ version: String(version).slice(0, 20), message: String(message).slice(0, 500), stack: stack ? String(stack).slice(0, 2000) : null, agent: navigator.userAgent.slice(0, 200) }); } catch (e) { /* offline */ }
+  };
+  // Nieuws: vrienden die sinds 'sinceIso' een beste tijd hebben neergezet die sneller is dan die van jou.
+  Online.friendsNews = async (sinceIso) => {
+    await init(); if (!userId()) return [];
+    const ids = await Online.friendIds(); if (!ids.length) return [];
+    const [theirs, mine] = await Promise.all([
+      q(sb.from("best_times").select("metric,time_s,username,car_name,run_at,user_id").in("user_id", ids).gt("run_at", sinceIso).order("run_at", { ascending: false }).limit(50)),
+      q(sb.from("best_times").select("metric,time_s").eq("user_id", userId())),
+    ]);
+    const my = Object.fromEntries(mine.map((m) => [m.metric, m.time_s]));
+    return theirs.filter((t) => my[t.metric] != null && t.time_s < my[t.metric]).map((t) => Object.assign({ mine: my[t.metric] }, t));
   };
   window.Online = Online;
 })();

@@ -358,6 +358,24 @@
       }
     }
 
+    // --- remmeting: van 'brakeFrom' (neerwaarts gekruist) tot stilstand ---
+    let brake = null;
+    if (opts.brakeFrom) {
+      const Sb = opts.brakeFrom * unitF;
+      let ic = -1;
+      for (let i = VV.length - 1; i > 0; i--) if (VV[i - 1] > Sb && VV[i] <= Sb) { ic = i; break; } // laatste neerwaartse kruising
+      if (ic > 0) {
+        const f = (VV[ic - 1] - Sb) / (VV[ic - 1] - VV[ic] || 1), tc = TT[ic - 1] + f * (TT[ic] - TT[ic - 1]);
+        let is = -1;
+        for (let i = ic; i < VV.length; i++) if (VV[i] <= 0.3) { is = i; break; }
+        if (is > 0) {
+          const ts = TT[is], time = (ts - tc) / 1000, dist = distAt(ts) - distAt(tc);
+          if (time > 0.3) brake = { from: opts.brakeFrom, time: +time.toFixed(3), dist: +dist.toFixed(2), decelG: +((Sb / time) / G).toFixed(2), tCross: tc };
+        }
+      }
+      if (brake) tRef = brake.tCross;
+    }
+
     // --- 4. extra's ---
     let peakG = 0;
     if (imuLong) {
@@ -375,12 +393,23 @@
     let peakV = 0;
     for (const v of VV) peakV = Math.max(peakV, v);
 
-    const nearestFix = (t) => { let best = null; for (const f of gps) if (!best || Math.abs(f.t - t) < Math.abs(best.t - t)) best = f; return best; };
+    // Helling: rechte lijn door (afstand, hoogte) van alle fixes in de run, met standaardfout.
+    // GPS-hoogte is onnauwkeurig; is de helling niet betrouwbaar te bepalen, dan null (onbekend).
     let slope = null;
-    const lastSplitT = Math.max(...speedSplits.map((s) => s.tEnd), ...distSplits.map((s) => s.tEnd), tStart);
-    const fa = nearestFix(tStart), fb = nearestFix(lastSplitT);
-    const dRun = distAt(lastSplitT) - distAt(tStart);
-    if (fa && fb && fa.alt != null && fb.alt != null && dRun > 30) slope = ((fb.alt - fa.alt) / dRun) * 100;
+    {
+      const pts = gps.filter((f) => f.alt != null && isFinite(f.alt) && f.t >= tStart - 50 && f.t <= tEnd + 50).map((f) => [distAt(Math.max(tStart, Math.min(tEnd, f.t))), f.alt]);
+      const n = pts.length;
+      if (n >= 4) {
+        const md = pts.reduce((s, p) => s + p[0], 0) / n, ma = pts.reduce((s, p) => s + p[1], 0) / n;
+        let sxx = 0, sxy = 0; for (const [d, a] of pts) { sxx += (d - md) ** 2; sxy += (d - md) * (a - ma); }
+        const span = Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0]));
+        if (sxx > 0 && span >= 60) {
+          const b = sxy / sxx; let ssr = 0; for (const [d, a] of pts) ssr += (a - ma - b * (d - md)) ** 2;
+          const se = Math.sqrt(ssr / Math.max(1, n - 2) / sxx);
+          if (se * 100 <= 0.8) slope = b * 100;
+        }
+      }
+    }
 
     const fixesInRun = gps.filter((f) => f.t >= tStart && f.t <= tEnd).length;
     const hz = fixesInRun > 1 ? (fixesInRun - 1) / ((tEnd - tStart) / 1000) : 0;
@@ -399,7 +428,7 @@
 
     return {
       ok: true, standing: opts.standing, unit: opts.unit, t0Method, fusion, rolloutMs: Math.round(rolloutMs),
-      speedSplits, distSplits, peakV: +peakV.toFixed(2), peakG: +peakG.toFixed(2),
+      speedSplits, distSplits, brake: brake ? { from: brake.from, time: brake.time, dist: brake.dist, decelG: brake.decelG } : null, peakV: +peakV.toFixed(2), peakG: +peakG.toFixed(2),
       slope: slope == null ? null : +slope.toFixed(2), hz: +hz.toFixed(1), meanAcc: meanAcc == null ? null : +meanAcc.toFixed(1),
       duration: +((tEnd - tRef) / 1000).toFixed(2), trace,
     };
@@ -457,14 +486,21 @@
         a = (F - drag) / car.m;
         if ((opts.stopV && v >= opts.stopV) || (opts.stopD && d >= opts.stopD) || v >= car.vmax * 0.997) { phase = "lift"; lifted = t; }
       } else if (phase === "lift") {
-        a = -0.5 * G;
-        if (v <= 0 || t - lifted > 4) break;
+        if (opts.brakeG) { // vol remmen tot stilstand (opbouw in 0,25 s), daarna even stilstaan
+          a = v > 0 ? -opts.brakeG * G * Math.min(1, (t - lifted) / 0.25) : 0;
+          if (v <= 0 && truth.brakeStop == null) { truth.brakeStop = t * 1000; truth.brakeStopD = d; }
+          if (truth.brakeStop != null && t * 1000 - truth.brakeStop > 1500) break;
+        } else {
+          a = -0.5 * G;
+          if (v <= 0 || t - lifted > 4) break;
+        }
       }
       const vPrev = v;
       v = Math.max(0, v + a * dt);
       d += 0.5 * (v + vPrev) * dt;
       t += dt;
       // waarheid: kruisingen per km/u en afstand
+      if (phase === "lift" && opts.brakeFrom && truth.brakeCross == null && vPrev * 3.6 > opts.brakeFrom && v * 3.6 <= opts.brakeFrom) { truth.brakeCross = t * 1000; truth.brakeCrossD = d; }
       const kPrev = Math.floor(vPrev * 3.6), kNow = Math.floor(v * 3.6);
       if (phase !== "lift" && kNow > kPrev) for (let k = kPrev + 1; k <= kNow; k++) if (!(k in truth.cross)) truth.cross[k] = t * 1000;
       for (const D of DISTANCES) if (!(D.id in truth.dist) && d >= D.m && launched != null) truth.dist[D.id] = { t: t * 1000, v };

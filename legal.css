@@ -1,0 +1,11 @@
+:root{color-scheme:dark}
+body{margin:0;background:#0a0712;color:#f4eefb;font:16px/1.6 Inter,system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:28px 18px 60px}
+h1{font:400 34px/1.1 Anton,Impact,sans-serif;letter-spacing:.03em;margin:8px 0 4px}
+h2{font-size:18px;margin:28px 0 6px;color:#ffb08a}
+p,li{color:#d9cfe8}small,.upd{color:#9d8fb6;font-size:13px}
+a{color:#ff5a8f}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0}
+td,th{border:1px solid rgba(244,238,251,.15);padding:8px;text-align:left;vertical-align:top}
+th{color:#ffb08a;font-weight:700}
+.back{display:inline-block;margin-bottom:10px;font-weight:700;text-decoration:none}

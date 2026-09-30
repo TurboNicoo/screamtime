@@ -73,6 +73,7 @@ main{flex:1;padding:0 16px calc(96px + var(--safe-b))}
 .carpill .sp{font:500 12px var(--mono);color:var(--muted)}
 .carpill .chev{margin-left:auto;color:var(--dim)}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;margin-top:10px}
+#modeSeg{grid-template-columns:repeat(3,1fr)}#modeSeg button{letter-spacing:.1em;font-size:11px;gap:6px}
 .seg button{height:42px;border-radius:13px;font:800 12px/1 'Inter';letter-spacing:.18em;color:var(--muted);display:flex;align-items:center;justify-content:center;gap:8px}
 .seg button.on{background:var(--flame);color:#fff;box-shadow:0 8px 24px -8px rgba(255,47,120,.7)}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:12px 2px 4px;scrollbar-width:none;scroll-snap-type:x proximity}
@@ -186,6 +187,21 @@ main{flex:1;padding:0 16px calc(96px + var(--safe-b))}
 .intro.s-out{animation:iout .6s cubic-bezier(.5,0,.75,0) forwards}
 @keyframes iout{to{opacity:0;transform:scale(1.18);filter:blur(6px)}}
 @media (max-height:700px){.i-mark{width:84px;height:84px}.intro.s-login .i-logo{transform:scale(.62) translateY(-30px)}}
+.chips.small{padding-top:4px}.chips.small button{height:32px;padding:0 11px;font:600 12px 'Inter';border-radius:10px}
+.chips.small button.on{background:rgba(162,56,255,.16);border-color:var(--purple);box-shadow:none}
+.brow{cursor:pointer}
+.news{padding:6px 0 10px;margin-bottom:12px;border-color:rgba(255,122,61,.4)}
+.news h4{margin:10px 14px 6px;font:800 10.5px 'Inter';letter-spacing:.2em;color:var(--flame-a);display:flex;justify-content:space-between;align-items:center}
+.nitem{padding:7px 14px;font-size:14px}.nitem span{color:var(--muted);font-size:12.5px}
+.i-remember input[type=checkbox]:not(.switch input){width:20px;height:20px;accent-color:var(--flame-b);flex:none}
+.i-remember a{color:var(--flame-b)}
+.i-remember[hidden]{display:none}
+.onb{text-align:center;padding:6px 4px 0}
+.onb .onb-ic{width:54px;height:54px;color:var(--flame-b);margin:4px auto 6px;filter:drop-shadow(0 0 14px rgba(255,47,120,.6))}
+.onb h2{margin:6px 0 8px}.onb p{color:var(--muted);font-size:15px;margin:0 6px 14px}
+.onb-ack{text-align:left;margin:4px 4px 16px}
+.onb-dots{display:flex;justify-content:center;gap:7px;margin:4px 0 16px}.onb-dots i{width:7px;height:7px;border-radius:50%;background:var(--line-strong)}.onb-dots i.on{background:var(--flame-b);width:20px;border-radius:4px}
+.acc{width:100%;border-collapse:collapse;font-size:12.5px;margin:10px 0}.acc td,.acc th{border:1px solid var(--line);padding:6px;text-align:left}.acc th{color:var(--flame-a)}
 /* ---------- tab bar ---------- */
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;justify-content:center;padding-bottom:var(--safe-b);
   background:rgba(12,8,20,.86);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-top:1px solid var(--line)}
@@ -352,6 +368,13 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
 .cam-save[hidden]{display:none}
 .cam-save{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(84px + var(--safe-b));z-index:2;height:46px;padding:0 18px;border-radius:14px;background:rgba(10,7,18,.75);border:1px solid var(--flame-b);color:#fff;font-weight:700;display:flex;align-items:center;gap:8px;backdrop-filter:blur(8px)}
 
+#resCmp:empty{display:none}
+.cmpkey{float:right;letter-spacing:.06em;font:600 10px 'Inter';color:var(--muted);text-transform:none}
+.cmpkey i{display:inline-block;width:14px;height:3px;border-radius:2px;margin:0 5px 2px 8px;vertical-align:middle}
+.cmpkey .la{background:var(--flame-b)}.cmpkey .lb{background:repeating-linear-gradient(90deg,#c184ff 0 4px,transparent 4px 7px)}
+.dgood{color:var(--ok)!important}.dbad{color:var(--flame-a)!important}
+.wx{margin-top:12px;padding:12px 14px;font-size:13.5px;color:var(--muted)}.wx[hidden]{display:none}
+.wx b{color:var(--ink)}.wx-c{margin-top:4px}
 /* ---------- tips ---------- */
 .tipsbox{margin-top:12px;padding:6px 0 8px}
 .tipsbox h4{margin:12px 16px 10px;font:800 10.5px 'Inter';letter-spacing:.26em;color:var(--dim)}
@@ -454,6 +477,7 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
       <label class="field" id="iUserF" hidden><span>Username</span><input id="iUser" name="username" autocomplete="nickname" maxlength="20" placeholder="bijv. StreetScreamer" autocapitalize="off"></label>
       <label class="field"><span>E-mail</span><input id="iMail" name="email" type="email" autocomplete="username email" inputmode="email" autocapitalize="off" required></label>
       <label class="field"><span>Wachtwoord</span><input id="iPw" name="password" type="password" autocomplete="current-password" minlength="6" required></label>
+      <label class="i-remember" id="iTermsF" hidden><input type="checkbox" id="iTerms"> <span>Ik ga akkoord met de <a href="voorwaarden.html" target="_blank">voorwaarden</a> en <a href="privacy.html" target="_blank">privacyverklaring</a></span></label>
       <label class="i-remember"><span class="switch"><input type="checkbox" id="iRemember" checked><i></i></span>Onthoud mij op dit toestel</label>
       <button class="btn pri" id="iGo" type="submit">Inloggen</button>
       <div class="i-links"><button type="button" class="linkbtn" id="iForgot">Wachtwoord vergeten?</button><button type="button" class="linkbtn dim" id="iNo">Zonder account verder</button></div>
@@ -479,6 +503,7 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
       <div class="card seg" id="modeSeg">
         <button data-mode="speed" class="on"><svg class="i" style="width:18px;height:18px"><use href="#i-speed"/></svg>SNELHEID</button>
         <button data-mode="dist"><svg class="i" style="width:18px;height:18px"><use href="#i-ruler"/></svg>AFSTAND</button>
+        <button data-mode="brake"><svg class="i" style="width:18px;height:18px"><use href="#i-stop"/></svg>REMMEN</button>
       </div>
       <div class="chips" id="chips"></div>
       <div class="gauge-wrap" id="gaugeWrap"><canvas id="gauge"></canvas><div class="demo-tag" id="demoTag">DEMO</div></div>
@@ -508,8 +533,10 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
       <div class="h-page">RANGLIJST</div>
       <div id="boardAuth"></div>
       <div id="boardBody">
+        <div id="boardNews"></div>
         <div class="card seg" id="boardScope"><button data-s="all" class="on">🌍 IEDEREEN</button><button data-s="friends">👥 VRIENDEN</button></div>
         <div class="chips" id="boardMetrics"></div>
+        <div class="chips small" id="boardClass"></div>
         <div id="boardList" style="margin-top:8px"></div>
       </div>
     </section>
@@ -561,6 +588,14 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
         <label class="row" style="cursor:pointer"><svg class="i ic"><use href="#i-upload"/></svg><div class="tx"><b>Back-up terugzetten</b><span>Kies een eerder gemaakt bestand</span></div><input type="file" id="importFile" accept="application/json,.json" hidden><svg class="i chev"><use href="#i-chev"/></svg></label>
       </div>
 
+      <div class="h-eyebrow">Hulp & juridisch</div>
+      <div class="card rows">
+        <button class="row" id="rowTour"><svg class="i ic"><use href="#i-info"/></svg><div class="tx"><b>Uitleg bekijken</b><span>Zo meet je de beste tijden</span></div><svg class="i chev"><use href="#i-chev"/></svg></button>
+        <button class="row" id="rowAccuracy"><svg class="i ic"><use href="#i-sat"/></svg><div class="tx"><b>Nauwkeurigheid</b><span>Hoe precies meet ScreamTime?</span></div><svg class="i chev"><use href="#i-chev"/></svg></button>
+        <a class="row" href="privacy.html" target="_blank" style="color:inherit;text-decoration:none"><svg class="i ic"><use href="#i-info"/></svg><div class="tx"><b>Privacyverklaring</b><span>Welke gegevens, waar en hoe lang</span></div><svg class="i chev"><use href="#i-chev"/></svg></a>
+        <a class="row" href="voorwaarden.html" target="_blank" style="color:inherit;text-decoration:none"><svg class="i ic"><use href="#i-flag"/></svg><div class="tx"><b>Gebruiksvoorwaarden</b><span>Veilig meten en eerlijk spel</span></div><svg class="i chev"><use href="#i-chev"/></svg></a>
+      </div>
+
       <div class="h-eyebrow">Over</div>
       <div class="card about">
         <p><b style="color:var(--ink)">ScreamTime by Street Screamer · versie <span id="ver"></span></b></p>
@@ -597,6 +632,8 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
   <div class="body">
     <div class="kpis" id="resKpis"></div>
     <div class="card chart"><canvas id="resChart"></canvas></div>
+    <div class="card splits" id="resCmp" style="margin-top:12px"></div>
+    <div class="card wx" id="resWx" hidden></div>
     <div class="card splits" id="resSplits"></div>
     <div class="card tipsbox" id="resTips"></div>
     <div class="quality" id="resQual"></div>
@@ -639,11 +676,11 @@ setTimeout(() => {
   s.innerHTML = '<div style="text-align:center;color:#f4eefb;font:15px Inter,sans-serif;padding:24px;max-width:340px"><p style="font-weight:700">ScreamTime kon niet starten</p><p style="color:#7c6d94;font-size:12px;word-break:break-word">' + (window.__bootErr || "onbekende fout") + '</p><button onclick="hardReload()" style="margin-top:10px;height:46px;padding:0 20px;border-radius:14px;border:0;background:linear-gradient(100deg,#ff7a3d,#ff2f78,#a238ff);color:#fff;font-weight:700">Opnieuw laden</button></div>';
 }, 6000);
 </script>
-<script src="config.js?v=160"></script>
-<script src="online.js?v=160"></script>
-<script src="engine.js?v=160"></script>
-<script src="sources.js?v=160"></script>
-<script src="app.js?v=160"></script>
+<script src="config.js?v=170"></script>
+<script src="online.js?v=170"></script>
+<script src="engine.js?v=170"></script>
+<script src="sources.js?v=170"></script>
+<script src="app.js?v=170"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>

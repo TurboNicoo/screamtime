@@ -1,5 +1,5 @@
-const CACHE = "screamtime-v11";
-const ASSETS = ["./", "index.html", "app.js", "engine.js", "sources.js", "config.js", "online.js", "manifest.json", "icon-192.png", "icon-512.png", "icon-512-maskable.png",
+const CACHE = "screamtime-v12";
+const ASSETS = ["./", "index.html", "app.js", "engine.js", "sources.js", "config.js", "online.js", "privacy.html", "voorwaarden.html", "legal.css", "manifest.json", "icon-192.png", "icon-512.png", "icon-512-maskable.png",
   "img/car-hood-purple.jpg", "img/car-burnout-smoke.jpg", "img/car-angle-crowd.jpg"];
 const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net"]; // cache-first: lettertypes en de Supabase-bibliotheek
 

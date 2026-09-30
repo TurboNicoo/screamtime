@@ -1,7 +1,7 @@
 /* Screamer Launch — app (UI, meet-statemachine, gauges, resultaten). */
 (function () {
   "use strict";
-  const VERSION = "1.6.0";
+  const VERSION = "1.7.0";
   const KEY = "screamerlaunch_v1";
   const E = window.Engine, SR = window.Sources;
   const $ = (s, r = document) => r.querySelector(s);
@@ -38,9 +38,15 @@
     mph: ["0-30", "0-60", "0-100", "0-130", "0-150", "0-200", "0-250", "0-300", "30-70", "60-130", "100-150"],
   };
   const DIST_CHIPS = ["60ft", "1/8", "1000ft", "1/4", "1/2", "1km", "1mi"];
+  const BRAKE_CHIPS = { kmh: ["100-0", "130-0", "200-0"], mph: ["60-0", "100-0"] };
   const speedChips = () => SPEED_CHIPS[unit()].concat(S.custom.filter((c) => c.unit === unit()).map((c) => c.v));
 
   function curTarget() {
+    if (S.mode === "brake") {
+      if (!BRAKE_CHIPS[unit()].includes(S.sel.brake)) S.sel.brake = unit() === "mph" ? "60-0" : "100-0";
+      const a = +S.sel.brake.split("-")[0];
+      return { type: "brake", from: a, standing: false, key: `B:${unit()}:${a}-0`, label: `${a}–0 ${uLbl()}` };
+    }
     if (S.mode === "speed") {
       if (!speedChips().includes(S.sel.speed)) S.sel.speed = unit() === "mph" ? "0-60" : "0-100";
       const [a, b] = S.sel.speed.split("-").map(Number);
@@ -186,7 +192,11 @@
     Object.assign(M, { liveSplits: [], rec: null, t0: null, peakV: 0, dist: 0, reachedAt: null, cand: null, redlight: false, lastRunFix: null, stillSince: null, imuLaunch: false, confirmed: false, final: null });
     requestWake();
     setGo(true);
-    if (M.target.standing) {
+    if (M.target.type === "brake") {
+      M.state = "brake-wait";
+      setStatus(`Rij <b>harder dan ${M.target.from + 8} ${uLbl()}</b>`);
+      if (S.settings.source === "sim") SRC.cur.play({ stopV: (M.target.from + 12) * uf(), brakeG: 1.05, brakeFrom: Math.round(M.target.from * uf() * 3.6), idle: 1.2 });
+    } else if (M.target.standing) {
       M.state = "arming"; M.stillWhy = "move"; M.lastStatus = ""; M.abortMsgUntil = 0; M.creepSince = null;
       armingStatus(performance.now());
     } else {
@@ -298,6 +308,31 @@
         if (f.v > CREEP_V && imuAvailable() && !M.cand && imuMeanG(300) < 0.12) { abortCountdown("Auto rolde weg"); break; }
         if (f.v > 1.5) launch(SRC.prevFix && SRC.prevFix.v < 0.6 ? Math.max(SRC.prevFix.t, f.t - (f.v / 5) * 1000) : f.t - (f.v / 5) * 1000, false);
         break;
+      case "brake-wait":
+        if (f.v > (T.from + 8) * uf()) { M.state = "brake-armed"; beginRecording(); setStatus(`<b>Vol remmen</b> bij ${T.from} ${uLbl()}`); beep(900, 0.12); vibe(40); }
+        break;
+      case "brake-armed": {
+        const S0 = T.from * uf(), p = SRC.prevFix;
+        if (M.rec) { const cut = f.t - 40000; while (M.rec.gps.length && M.rec.gps[0].t < cut) M.rec.gps.shift(); while (M.rec.imu.length && M.rec.imu[0].t < cut) M.rec.imu.shift(); }
+        if (p && p.v >= S0 && f.v < S0) {
+          M.state = "braking"; M.t0 = p.t + ((p.v - S0) / (p.v - f.v)) * (f.t - p.t); M.brakeCheck = false; M.stopSince = null;
+          setStatus("<b>REMMEN!</b>"); vibe(40); TEL.trace = [];
+        }
+        break;
+      }
+      case "braking": {
+        const S0 = T.from * uf();
+        TEL.trace.push([(f.t - M.t0) / 1000, f.v]);
+        if (!M.brakeCheck && f.t - M.t0 > 700) { // remde je echt? gemiddeld minstens 0,3 g
+          M.brakeCheck = true;
+          if ((S0 - f.v) / ((f.t - M.t0) / 1000) < 0.3 * E.G) { M.state = f.v > (T.from + 8) * uf() ? "brake-armed" : "brake-wait"; M.rec = M.state === "brake-armed" ? M.rec : null; setStatus(`Niet hard genoeg geremd — rij weer <b>boven ${T.from + 8} ${uLbl()}</b>`); break; }
+        }
+        if (f.v > S0 + 3 * E.KMH) { M.state = "brake-armed"; setStatus(`<b>Vol remmen</b> bij ${T.from} ${uLbl()}`); break; }
+        if (f.v < 0.5) { if (M.stopSince == null) M.stopSince = f.t; if (f.t - M.stopSince >= 250 || f.v < 0.15) finish("brake"); }
+        else M.stopSince = null;
+        if (f.t - M.t0 > 20000) finish("timeout");
+        break;
+      }
       case "roll-wait":
         if (f.v < T.from * uf() - 2 * E.KMH) { M.state = "roll-armed"; beginRecording(); setStatus(`<b>Vol gas!</b> Timer start bij ${T.from} ${uLbl()}`); beep(900, 0.12); vibe(40); }
         break;
@@ -350,6 +385,7 @@
   function goPressed() {
     if (M.state === "idle") startMeasure();
     else if (M.state === "running") finish("stop");
+    else if (M.state === "braking") finish("brake");
     else cancelMeasure();
   }
 
@@ -358,25 +394,30 @@
     M.state = "idle"; M.rec = null; setGo(false); clearTree();
     setStatus("Druk <b>START</b> om te beginnen");
     if (!rec) return;
-    const res = E.analyze(rec, { standing: T.standing, rollout: S.settings.rollout && T.standing, unit: unit(), extraPairs: T.type === "speed" && T.from > 0 ? [[T.from, T.to]] : T.type === "speed" ? [[0, T.to]] : [] });
+    const brakeRun = T.type === "brake";
+    const res = E.analyze(rec, { standing: T.standing, rollout: S.settings.rollout && T.standing, unit: unit(), brakeFrom: brakeRun ? T.from : 0, extraPairs: T.type === "speed" && T.from > 0 ? [[T.from, T.to]] : T.type === "speed" ? [[0, T.to]] : [] });
     if (!res.ok) { toast(res.reason || "Geen geldige meting"); return; }
-    const prim = T.type === "speed" ? res.speedSplits.find((s) => s.from === T.from && s.to === T.to) : res.distSplits.find((s) => s.id === T.id);
+    if (brakeRun && !res.brake) { toast("Geen geldige remmeting — rem vol tot stilstand"); return; }
+    const prim = brakeRun ? res.brake : T.type === "speed" ? res.speedSplits.find((s) => s.from === T.from && s.to === T.to) : res.distSplits.find((s) => s.id === T.id);
+    if (!brakeRun) res.brake = null;
     if (!prim && !res.speedSplits.length && !res.distSplits.length) { toast(reason === "stop" ? "Gestopt — geen tijd gemeten" : "Doel niet gehaald — geen tijd gemeten"); return; }
     const sim = S.settings.source === "sim";
     const car = sim ? { id: "demo:" + S.settings.simCar, name: "Demo · " + E.SIM_CARS[S.settings.simCar].name } : activeCar();
     const run = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), carId: car.id, carName: car.name, unit: unit(),
-      target: T, primary: prim ? { key: T.key, label: T.label, time: prim.time } : null, res, src: S.settings.source, sim, redlight: M.redlight, mass: carMass(),
+      pos: (() => { const f = rec.gps.find((x) => x.lat != null); return f ? [Math.round(f.lat * 100) / 100, Math.round(f.lon * 100) / 100] : null; })(),
+      target: T, primary: prim ? Object.assign({ key: T.key, label: T.label, time: prim.time }, brakeRun ? { dist: prim.dist } : {}) : null, res, src: S.settings.source, sim, redlight: M.redlight, mass: carMass(),
     };
     M.final = prim ? prim.time : null;
     S.runs.unshift(run);
+    fetchWeather(run);
     if (S.runs.length > 600) S.runs.length = 600;
     save();
     if (CAM.on) { // eerst de resultaatkaart in beeld (en in de video), daarna het resultaatscherm
       CAM.finalRun = run; CAM.finalAt = performance.now();
       // live schattingen vervangen door de definitieve analyse
       const at = performance.now() + 4500;
-      M.liveSplits = res.speedSplits.filter((s) => s.from === 0).map((s) => ({ key: s.to, label: `0–${s.to}`, time: s.time, at }))
+      M.liveSplits = brakeRun ? [] : res.speedSplits.filter((s) => s.from === 0).map((s) => ({ key: s.to, label: `0–${s.to}`, time: s.time, at }))
         .concat(res.distSplits.map((s) => ({ key: s.id, label: s.label, time: s.time, at }))).sort((a, b) => a.time - b.time);
       burstAt(innerWidth / 2, innerHeight * 0.35, 120);
       [880, 1175, 1568, 2093].forEach((f, i) => beep(f, 0.18, "triangle", 0.09, i * 0.09)); vibe([60, 40, 140]);
@@ -408,7 +449,7 @@
     if (!f || SRC.nofix) return 0;
     let v = f.v;
     const p = SRC.prevFix;
-    if (p && (M.state === "running" || M.state === "roll-armed") && f.t > p.t) {
+    if (p && (M.state === "running" || M.state === "roll-armed" || M.state === "braking") && f.t > p.t) {
       const a = (f.v - p.v) / ((f.t - p.t) / 1000);
       v += a * Math.min(Math.max(0, (now - f.t) / 1000), 1.1 * (f.t - p.t) / 1000);
     }
@@ -830,7 +871,7 @@
     if (GA.v < 0.05) GA.v = 0;
     // schaal
     const T = curTargetCached();
-    const need = Math.max(T.type === "speed" ? T.to * (T.to >= 300 ? 1.2 : 1.3) : (unit() === "mph" ? 130 : 200), GA.v * 1.12);
+    const need = Math.max(T.type === "speed" ? T.to * (T.to >= 300 ? 1.2 : 1.3) : T.type === "brake" ? T.from * 1.4 : (unit() === "mph" ? 130 : 200), GA.v * 1.12);
     const bs = BRANDS[gaugeOpts().style];
     GA.want = bs && need <= bs.fixedMax[unit()] ? [bs.fixedMax[unit()], bs.step[unit()]] : pickMax(need);
     GA.max += (GA.want[0] - GA.max) * (1 - Math.exp(-dt * 4));
@@ -858,10 +899,10 @@
       for (const p of GA.sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt; p.vx *= 0.985; p.life -= dt * 1.8; }
       GA.sparks = GA.sparks.filter((p) => p.life > 0);
       if (GA.sparks.length > 220) GA.sparks.splice(0, GA.sparks.length - 220);
-      drawGauge(gCtx, gSize, Object.assign(gaugeOpts(), { v: GA.v, max: GA.max, step: GA.want[1], target: T.type === "speed" ? T.to : null, unit: uLbl(), trail: GA.trail.slice(0, -1), sparks: GA.sparks, live: true }));
+      drawGauge(gCtx, gSize, Object.assign(gaugeOpts(), { v: GA.v, max: GA.max, step: GA.want[1], target: T.type === "speed" ? T.to : T.type === "brake" ? T.from : null, unit: uLbl(), trail: GA.trail.slice(0, -1), sparks: GA.sparks, live: true }));
       // live getallen
       let tEl = 0;
-      if (running) tEl = (now - M.t0) / 1000;
+      if (running || M.state === "braking") tEl = (now - M.t0) / 1000;
       else if (M.final != null) tEl = M.final;
       $("#lsTime").textContent = tEl.toFixed(2);
       $("#lsG").textContent = TEL.lonG.toFixed(2);
@@ -873,7 +914,7 @@
     }
   }
   let _tc = null, _tcKey = "";
-  function curTargetCached() { const k = S.mode + S.sel.speed + S.sel.dist + unit(); if (k !== _tcKey) { _tcKey = k; _tc = curTarget(); } return _tc; }
+  function curTargetCached() { const k = S.mode + S.sel.speed + S.sel.dist + (S.sel.brake || "") + unit(); if (k !== _tcKey) { _tcKey = k; _tc = curTarget(); } return _tc; }
 
   // ================= meten-scherm =================
   function renderMeten() {
@@ -884,7 +925,9 @@
     $("#carSpec").textContent = sim ? "gesimuleerde run" : [c.make, c.hp ? c.hp + " pk" : "", c.nm ? c.nm + " Nm" : ""].filter(Boolean).join(" · ");
     $$("#modeSeg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === S.mode));
     const chips = $("#chips");
-    if (S.mode === "speed") {
+    if (S.mode === "brake") {
+      chips.innerHTML = BRAKE_CHIPS[unit()].map((k) => `<button data-k="${k}" class="${k === S.sel.brake ? "on" : ""}">${k.replace("-", "–")}</button>`).join("");
+    } else if (S.mode === "speed") {
       chips.innerHTML = speedChips().map((k) => `<button data-k="${k}" class="${k === S.sel.speed ? "on" : ""} ${k.startsWith("0-") ? "" : "rolling"}">${k.replace("-", "–")}</button>`).join("") + `<button class="add" id="addChip">+ eigen</button>`;
     } else {
       chips.innerHTML = DIST_CHIPS.map((id) => { const d = E.DISTANCES.find((x) => x.id === id); return `<button data-k="${id}" class="${id === S.sel.dist ? "on" : ""}">${d.label}</button>`; }).join("");
@@ -896,7 +939,7 @@
     const b = e.target.closest("button"); if (!b) return;
     if (M.state !== "idle") { toast("Stop eerst de lopende meting"); return; }
     if (b.id === "addChip") { openCustomSheet(); return; }
-    if (S.mode === "speed") S.sel.speed = b.dataset.k; else S.sel.dist = b.dataset.k;
+    if (S.mode === "speed") S.sel.speed = b.dataset.k; else if (S.mode === "brake") S.sel.brake = b.dataset.k; else S.sel.dist = b.dataset.k;
     save(); renderMeten(); gaugeFlash();
   });
   $("#goBtn").addEventListener("click", goPressed);
@@ -1067,14 +1110,21 @@
 
   // ================= resultaten =================
   let resFilter = "active";
-  function runSplits(r) { // alle tijden uit een run: key → tijd
+  // Remmen wordt beoordeeld op remweg (m), de rest op tijd (s). Lager is altijd beter.
+  const isBrake = (k) => !!k && k.startsWith("B:");
+  const primVal = (p) => (p ? (isBrake(p.key) ? p.dist : p.time) : null);
+  const fmtVal = (k, v) => (isBrake(k) ? `${(+v).toFixed(1)}<small>m</small>` : `${(+v).toFixed(2)}<small>s</small>`);
+  const fmtValTxt = (k, v) => (isBrake(k) ? `${(+v).toFixed(1)} m` : `${(+v).toFixed(2)} s`);
+  function runSplits(r) { // alle resultaten uit een run: key → tijd (of remweg)
     const out = {};
     if (!r.res) return out;
     for (const s of r.res.speedSplits) out[`S:${r.unit}:${s.from}-${s.to}`] = s.time;
     for (const s of r.res.distSplits) out["D:" + s.id] = s.time;
+    if (r.res.brake) out[`B:${r.unit}:${r.res.brake.from}-0`] = r.res.brake.dist;
     return out;
   }
   function metricLabel(key) {
+    if (isBrake(key)) { const [, u, p] = key.split(":"); return p.replace("-", "–") + " " + (u === "mph" ? "mph" : "km/u") + " remweg"; }
     if (key.startsWith("S:")) { const [, u, p] = key.split(":"); return p.replace("-", "–") + " " + (u === "mph" ? "mph" : "km/u"); }
     const d = E.DISTANCES.find((x) => "D:" + x.id === key); return d ? d.label : key;
   }
@@ -1100,8 +1150,8 @@
     const runs = filteredRuns();
     const pb = pbTable(runs);
     const u = unit();
-    const keys = [`S:${u}:0-${u === "mph" ? 60 : 100}`, `S:${u}:0-${u === "mph" ? 100 : 200}`, `S:${u}:${u === "mph" ? "60-130" : "100-200"}`, `S:${u}:0-${u === "mph" ? 150 : 300}`, `S:${u}:0-${u === "mph" ? 200 : 400}`, `S:${u}:0-${u === "mph" ? 300 : 500}`, "D:1/4", "D:1/8", "D:60ft", "D:1/2", "D:1mi"];
-    const tiles = keys.filter((k) => pb[k]).map((k) => `<button class="card pb" data-run="${pb[k].run.id}"><div class="l">${metricLabel(k).toUpperCase()}</div><div class="v">${pb[k].time.toFixed(2)}<small>s</small></div><div class="d">${fmtDate(pb[k].run.ts, true)}</div></button>`);
+    const keys = [`B:${u}:${u === "mph" ? 60 : 100}-0`, `S:${u}:0-${u === "mph" ? 60 : 100}`, `S:${u}:0-${u === "mph" ? 100 : 200}`, `S:${u}:${u === "mph" ? "60-130" : "100-200"}`, `S:${u}:0-${u === "mph" ? 150 : 300}`, `S:${u}:0-${u === "mph" ? 200 : 400}`, `S:${u}:0-${u === "mph" ? 300 : 500}`, "D:1/4", "D:1/8", "D:60ft", "D:1/2", "D:1mi"];
+    const tiles = keys.filter((k) => pb[k]).map((k) => `<button class="card pb" data-run="${pb[k].run.id}"><div class="l">${metricLabel(k).toUpperCase()}</div><div class="v">${fmtVal(k, pb[k].time)}</div><div class="d">${fmtDate(pb[k].run.ts, true)}</div></button>`);
     let top = null; for (const r of runs) if (r.res && (!top || r.res.peakV > top.res.peakV)) top = r;
     if (top) tiles.push(`<button class="card pb" data-run="${top.id}"><div class="l">TOPSNELHEID</div><div class="v">${Math.round(top.res.peakV / uf())}<small>${uLbl()}</small></div><div class="d">${fmtDate(top.ts, true)}</div></button>`);
     $("#pbGrid").innerHTML = tiles.length ? tiles.join("") : `<div class="card empty" style="grid-column:1/-1">${icon("i-trophy")}<div>Nog geen records. Tijd om te launchen!</div></div>`;
@@ -1109,7 +1159,7 @@
       const p = r.primary;
       const isPb = p && pb[p.key] && pb[p.key].run.id === r.id;
       const slope = r.res && r.res.slope != null && Math.abs(r.res.slope) > 1;
-      return `<button class="card run" data-run="${r.id}"><div class="big">${p ? p.time.toFixed(2) : "—"}<small>s</small></div>
+      return `<button class="card run" data-run="${r.id}"><div class="big">${p ? fmtVal(p.key, primVal(p)) : "—"}</div>
         <div class="meta"><b>${esc(p ? p.label : "Onvolledig")} ${isPb ? `<span class="tag gold">${icon("i-trophy", "i")} PB</span>` : ""}${r.sim ? ` <span class="tag demo">DEMO</span>` : ""}${slope ? ` <span class="tag warn">${r.res.slope > 0 ? "+" : ""}${r.res.slope.toFixed(1)}%</span>` : ""}</b>
         <span>${esc(r.carName)} · ${fmtDate(r.ts)}</span><span>top ${Math.round((r.res ? r.res.peakV : 0) / (r.unit === "mph" ? E.MPH : E.KMH))} ${r.unit === "mph" ? "mph" : "km/u"} · ${r.res ? r.res.hz : "?"} Hz</span></div>${icon("i-chev", "i")}</button>`;
     }).join("") : `<div class="card empty">${icon("i-flag")}<div>Nog geen runs voor deze selectie.</div></div>`;
@@ -1165,8 +1215,28 @@
     }
     return dips;
   }
+  // Remtips: vergelijk met wat de banden fysiek kunnen (remweg = v² / 2µg).
+  function brakeTips(run) {
+    const p = run.primary, r = run.res, b = r.brake, out = [];
+    const c = run.sim ? SIM_META[(run.carId.split(":")[1] || "screamer")] : S.cars.find((x) => x.id === run.carId) || {};
+    const mu = { street: 1.05, semi: 1.2, drag: 0.95, winter: 0.85 }[c.tires || "street"];
+    const v = b.from * (run.unit === "mph" ? E.MPH : E.KMH), ideal = (v * v) / (2 * mu * E.G);
+    const head = { pt: ideal, gap: b.dist - ideal };
+    if (b.decelG < mu * 0.85) out.push({ ic: "i-stop", t: "Rem direct vol", x: `Je gemiddelde vertraging was ${b.decelG.toFixed(2)} g; met deze banden kan ≈ ${mu.toFixed(2)} g. Trap in één keer vol in en houd vast: het ABS voorkomt blokkeren. Pompen of doseren kost meters.`, g: b.dist - (v * v) / (2 * Math.min(mu, b.decelG * 1.12) * E.G) });
+    const next = { winter: "street", street: "semi" }[c.tires || "street"];
+    if (next) { const mu2 = { street: 1.05, semi: 1.2 }[next]; out.push({ ic: "i-car", t: next === "semi" ? "Semi-slicks remmen korter" : "Zomerbanden erop", x: next === "semi" ? "Meer grip is ook korter remmen. Straatbanden: controleer de bandenspanning (koud, volgens de sticker in de deurstijl)." : "Winterbanden hebben op droog asfalt merkbaar minder grip.", g: (v * v) / (2 * mu * E.G) - (v * v) / (2 * mu2 * E.G) }); }
+    const prev = S.runs.filter((x) => x.id !== run.id && x.carId === run.carId && x.res && x.res.brake && x.res.brake.from === b.from);
+    const best = prev.length ? Math.min(...prev.map((x) => x.res.brake.dist)) : null;
+    if (best && b.dist > best * 1.08) out.push({ ic: "i-flame", t: "Remmen worden heet (fading)?", x: `Deze stop was ${(b.dist - best).toFixed(1)} m langer dan je beste. Laat de remmen tussen de metingen afkoelen door rustig een rondje te rijden.`, g: null });
+    else out.push({ ic: "i-sun", t: "Warm remmen, koele schijven", x: "De eerste stop met koude blokken is vaak langer. Doe 2–3 stevige opwarmstops, maar laat ze daarna niet oververhitten.", g: null });
+    if (r.slope != null && Math.abs(r.slope) > 0.4) out.push({ ic: "i-flag", t: `Helling ${r.slope > 0 ? "+" : ""}${r.slope.toFixed(1)}%`, x: r.slope > 0 ? "Bergop remt korter: deze remweg is geflatteerd." : "Bergaf remt langer: zoek een vlak stuk.", g: null });
+    for (const t of out) if (t.g != null) t.g = Math.max(0, Math.min(t.g, Math.max(0, head.gap)));
+    out.sort((a, bb) => (bb.g || 0) - (a.g || 0));
+    return { head, tips: out.slice(0, 5) };
+  }
   function tipsFor(run) {
     const p = run.primary, r = run.res, out = [];
+    if (p && isBrake(p.key) && r.brake) return brakeTips(run);
     if (!p) return { head: null, tips: [{ ic: "i-flag", t: "Doel niet gehaald", x: "Houd het gas vol tot voorbij de doelsnelheid of -afstand. De meting stopt als je meer dan 15 km/u terugvalt." }] };
     const sp = specFor(run);
     const u = run.unit;
@@ -1229,13 +1299,14 @@
   }
   function renderTips(run) {
     const { head, tips } = tipsFor(run);
-    let h = `<h4>ZO WORD JE SNELLER</h4>`;
+    const k = run.primary ? run.primary.key : "", br = isBrake(k), F = (v) => fmtValTxt(k, v);
+    let h = `<h4>${br ? "ZO REM JE KORTER" : "ZO WORD JE SNELLER"}</h4>`;
     if (head) {
-      const good = head.gap < 0.06;
-      h += `<div class="pot"><div><span>JOUW TIJD</span><b>${run.primary.time.toFixed(2)} s</b></div><div><span>≈ HAALBAAR</span><b class="fl">${head.pt.toFixed(2)} s</b></div>${head.factory ? `<div><span>FABRIEK</span><b>${head.factory.toFixed(1)} s</b></div>` : `<div><span>MARGE</span><b>${good ? "—" : "−" + Math.max(0, head.gap).toFixed(2) + " s"}</b></div>`}</div>
-        <p class="tipnote">${good ? "🔥 Je zit op het maximum van wat deze auto op papier kan. Sneller gaat alleen met meer grip, minder gewicht of meer vermogen." : `Op basis van ${esc(run.carName)}: vermogen, gewicht, aandrijving, bak en banden. De schatting gaat uit van een perfecte launch op een vlakke weg.`}</p>`;
+      const good = head.gap < (br ? 0.8 : 0.06);
+      h += `<div class="pot"><div><span>${br ? "JOUW REMWEG" : "JOUW TIJD"}</span><b>${F(primVal(run.primary))}</b></div><div><span>≈ HAALBAAR</span><b class="fl">${F(head.pt)}</b></div>${head.factory ? `<div><span>FABRIEK</span><b>${head.factory.toFixed(1)} s</b></div>` : `<div><span>MARGE</span><b>${good ? "—" : "−" + F(Math.max(0, head.gap))}</b></div>`}</div>
+        <p class="tipnote">${good ? (br ? "🔥 Je remt op de grens van je banden. Korter gaat alleen met meer grip." : "🔥 Je zit op het maximum van wat deze auto op papier kan. Sneller gaat alleen met meer grip, minder gewicht of meer vermogen.") : br ? "Op basis van de grip van je banden (instelbaar in de garage), gemeten vanaf het moment dat je door de beginsnelheid zakt." : `Op basis van ${esc(run.carName)}: vermogen, gewicht, aandrijving, bak en banden. De schatting gaat uit van een perfecte launch op een vlakke weg.`}</p>`;
     }
-    h += tips.map((t) => `<div class="tip">${icon(t.ic, "i ic")}<div><b>${esc(t.t)}${t.g > 0.01 ? ` <span class="gain">≈ −${t.g.toFixed(2)} s</span>` : ""}</b><p>${esc(t.x)}</p></div></div>`).join("");
+    h += tips.map((t) => `<div class="tip">${icon(t.ic, "i ic")}<div><b>${esc(t.t)}${t.g > (br ? 0.2 : 0.01) ? ` <span class="gain">≈ −${F(t.g)}</span>` : ""}</b><p>${esc(t.x)}</p></div></div>`).join("");
     $("#resTips").innerHTML = h;
   }
 
@@ -1247,32 +1318,39 @@
     const p = run.primary;
     // PB-vergelijking met eerdere runs van dezelfde auto
     const others = S.runs.filter((x) => x.id !== run.id && x.carId === run.carId && x.ts < run.ts);
-    const prevPb = p ? pbTable(others)[p.key] : null;
-    const isPb = p && (!prevPb || p.time < prevPb.time);
+    const prevPb = p ? pbTable(others)[p.key] : null, pv = primVal(p), br = p && isBrake(p.key);
+    const isPb = p && (!prevPb || pv < prevPb.time);
+    cmpRun = null;
     $("#resEb").textContent = p ? p.label : "Doel niet gehaald";
     $("#resCar").textContent = run.carName;
     $("#resWhen").textContent = fmtDate(run.ts);
     const tags = [];
-    if (p && isPb && others.some((x) => runSplits(x)[p.key] != null)) tags.push(`<span class="tag gold">${icon("i-trophy")} NIEUW RECORD${prevPb ? " · −" + (prevPb.time - p.time).toFixed(2) + " s" : ""}</span>`);
+    if (p && isPb && others.some((x) => runSplits(x)[p.key] != null)) tags.push(`<span class="tag gold">${icon("i-trophy")} NIEUW RECORD${prevPb ? " · −" + fmtValTxt(p.key, prevPb.time - pv) : ""}</span>`);
     else if (p && isPb) tags.push(`<span class="tag gold">${icon("i-trophy")} EERSTE RECORD</span>`);
-    else if (p && prevPb) tags.push(`<span class="tag warn">+${(p.time - prevPb.time).toFixed(2)} s t.o.v. record</span>`);
+    else if (p && prevPb) tags.push(`<span class="tag warn">+${fmtValTxt(p.key, pv - prevPb.time)} t.o.v. record</span>`);
     if (run.sim) tags.push(`<span class="tag demo">DEMO</span>`);
     if (run.redlight) tags.push(`<span class="tag warn">VROEGE START</span>`);
     if (r.slope != null && Math.abs(r.slope) > 1) tags.push(`<span class="tag warn">HELLING ${r.slope > 0 ? "+" : ""}${r.slope.toFixed(1)}%</span>`);
     $("#resTags").innerHTML = tags.join("");
     const dy = dyno(run);
-    $("#resKpis").innerHTML = [["TOP", Math.round(r.peakV / uF), uL], ["PIEK G", r.peakG.toFixed(2), "g"], ["GPS", r.hz, "Hz"], ["≈ WIELVERM.", dy.hp, "pk"], ["≈ WIELKOPPEL", dy.nm, "Nm"], ["HELLING", r.slope == null ? "—" : (r.slope > 0 ? "+" : "") + r.slope.toFixed(1), r.slope == null ? "" : "%"]]
+    const slopeK = ["HELLING", r.slope == null ? "—" : (r.slope > 0 ? "+" : "") + r.slope.toFixed(1), r.slope == null ? "" : "%"];
+    $("#resKpis").innerHTML = (br ? [["REMTIJD", r.brake.time.toFixed(2), "s"], ["VERTRAGING", r.brake.decelG.toFixed(2), "g"], ["GPS", r.hz, "Hz"], ["VANAF", r.brake.from, uL], ["TOP", Math.round(r.peakV / uF), uL], slopeK]
+      : [["TOP", Math.round(r.peakV / uF), uL], ["PIEK G", r.peakG.toFixed(2), "g"], ["GPS", r.hz, "Hz"], ["≈ WIELVERM.", dy.hp, "pk"], ["≈ WIELKOPPEL", dy.nm, "Nm"], slopeK])
       .map(([l, v, s]) => `<div class="card"><span>${l}</span><b>${v}<small style="font-size:10px;color:var(--muted)"> ${s}</small></b></div>`).join("");
     const pk = p ? p.key : "";
     const sRows = r.speedSplits.map((s) => { const k = `S:${run.unit}:${s.from}-${s.to}`; return `<div class="split ${k === pk ? "prim" : ""}"><span class="n">${s.from}–${s.to} ${uL}</span><span class="t">${s.time.toFixed(2)} s</span><span class="x2">${run.unit === "mph" ? Math.round(s.dist * 3.28084) + " ft" : Math.round(s.dist) + " m"}</span></div>`; }).join("");
     const dRows = r.distSplits.map((s) => `<div class="split ${"D:" + s.id === pk ? "prim" : ""}"><span class="n">${s.label}</span><span class="t">${s.time.toFixed(2)} s</span><span class="x2">@ ${Math.round(s.trap / uF)} ${uL}</span></div>`).join("");
-    $("#resSplits").innerHTML = (sRows ? `<h4>SNELHEID</h4>${sRows}` : "") + (dRows ? `<h4>AFSTAND</h4>${dRows}` : "");
+    $("#resSplits").innerHTML = br ? `<h4>REMMEN</h4><div class="split prim"><span class="n">${r.brake.from}–0 ${uL}</span><span class="t">${r.brake.dist.toFixed(1)} m</span><span class="x2">${r.brake.time.toFixed(2)} s</span></div>`
+      : (sRows ? `<h4>SNELHEID</h4>${sRows}` : "") + (dRows ? `<h4>AFSTAND</h4>${dRows}` : "");
+    $("#resCmp").innerHTML = "";
+    renderWeather(run);
     const srcName = { phone: "Telefoon-GPS", usb: "USB GNSS", racebox: "RaceBox", ble: "BLE GNSS", sim: "Simulator" }[run.src] || run.src;
     $("#resQual").textContent = `${srcName} · ${r.hz} Hz · ${r.fusion === "imu" ? "GPS + IMU-fusie" : "alleen GPS"} · start via ${r.t0Method === "imu" ? "IMU" : r.t0Method === "gps" ? "GPS" : "rolling"}${r.rolloutMs ? " · rollout " + r.rolloutMs + " ms" : ""}${r.meanAcc != null ? " · ±" + r.meanAcc + " m" : ""}`;
-    $("#resBtns").innerHTML = `<button class="btn sec" id="rShare">${icon("i-share")}Delen</button>` + (fresh ? `<button class="btn pri" id="rAgain">${icon("i-play")}Opnieuw</button>` : `<button class="btn danger" id="rDel">${icon("i-trash")}Verwijder</button>`);
+    $("#resBtns").innerHTML = `<button class="btn sec" id="rCmp" style="grid-column:1/-1">${icon("i-chart")}Vergelijk met een andere run</button><button class="btn sec" id="rShare">${icon("i-share")}Delen</button>` + (fresh ? `<button class="btn pri" id="rAgain">${icon("i-play")}Opnieuw</button>` : `<button class="btn danger" id="rDel">${icon("i-trash")}Verwijder</button>`);
     if (fresh && CAM.lastVideo && quiet) $("#resBtns").insertAdjacentHTML("afterbegin", `<button class="btn pri" id="rVid" style="grid-column:1/-1">${icon("i-save")}Video met overlay opslaan</button>`);
     const rv = $("#rVid"); if (rv) rv.onclick = saveVideo;
     $("#rShare").onclick = () => shareRun(run);
+    $("#rCmp").onclick = () => openCompare(run);
     if (fresh) $("#rAgain").onclick = () => { closeResult(); setTimeout(startMeasure, 250); };
     else $("#rDel").onclick = () => {
       if (!confirm(run.shared === "ok" ? "Deze run verwijderen? Hij verdwijnt ook uit de online ranglijst." : "Deze run verwijderen?")) return;
@@ -1284,18 +1362,65 @@
     requestAnimationFrame(() => drawChart(run));
     try { renderTips(run); } catch (e) { console.error(e); $("#resTips").innerHTML = ""; }
     showRank(run);
-    // tijd-teller
-    const target = p ? p.time : 0, el = $("#resTime");
+    // tijd-teller (bij remmen: remweg in meters)
+    const target = p ? pv : 0, el = $("#resTime"), dec = br ? 1 : 2;
+    $("#result .time small").textContent = br ? "m" : "s";
     if (fresh && p) {
       const t0 = performance.now(), D = 1100;
-      const step = () => { const k = Math.min(1, (performance.now() - t0) / D), e = 1 - Math.pow(2, -10 * k); el.textContent = (target * e).toFixed(2); if (k < 1) requestAnimationFrame(step); else el.textContent = target.toFixed(2); };
+      const step = () => { const k = Math.min(1, (performance.now() - t0) / D), e = 1 - Math.pow(2, -10 * k); el.textContent = (target * e).toFixed(dec); if (k < 1) requestAnimationFrame(step); else el.textContent = target.toFixed(dec); };
       step();
       setTimeout(() => burst(isPb ? 260 : 150), 450);
       if (!quiet) { [880, 1175, 1568, 2093].forEach((f, i) => beep(f, 0.18, "triangle", 0.09, 0.45 + i * 0.09)); vibe([60, 40, 140]); }
-    } else el.textContent = p ? p.time.toFixed(2) : "—";
+    } else el.textContent = p ? pv.toFixed(dec) : "—";
     history.pushState({ result: 1 }, "");
   }
-  function closeResult() { $("#result").classList.remove("open"); curRun = null; renderMeten(); }
+  function closeResult() { $("#result").classList.remove("open"); curRun = null; cmpRun = null; renderMeten(); }
+
+  // ---------- runs vergelijken ----------
+  let cmpRun = null;
+  function openCompare(run) {
+    const k = run.primary ? run.primary.key : null;
+    const cands = S.runs.filter((x) => x.id !== run.id && x.res && x.res.trace && (k ? runSplits(x)[k] != null : x.carId === run.carId)).slice(0, 40);
+    if (!cands.length) { toast("Nog geen andere run om mee te vergelijken"); return; }
+    openSheet(`<h2>Vergelijk met…</h2><div class="card rows">${cands.map((x) => `<button class="row" data-cmp="${x.id}"><div class="tx"><b>${k ? fmtValTxt(k, runSplits(x)[k]) : esc(x.primary ? x.primary.label : "Run")} · ${esc(x.carName)}</b><span>${fmtDate(x.ts)}${x.sim ? " · demo" : ""}</span></div>${icon("i-chev", "i chev")}</button>`).join("")}</div>`, (b) => {
+      $$("[data-cmp]", b).forEach((x) => x.onclick = () => { cmpRun = S.runs.find((y) => y.id === x.dataset.cmp); closeSheet(); drawChart(run); renderCompare(run, cmpRun); });
+    });
+  }
+  function renderCompare(run, other) {
+    const a = runSplits(run), b = runSplits(other);
+    const keys = Object.keys(a).filter((k) => b[k] != null);
+    $("#resCmp").innerHTML = `<h4>VERGELIJKING <span class="cmpkey"><i class="la"></i>deze run <i class="lb"></i>${fmtDate(other.ts, true)} · ${esc(other.carName)}</span></h4>` +
+      keys.map((k) => { const d = a[k] - b[k]; return `<div class="split"><span class="n">${metricLabel(k)}</span><span class="t">${fmtValTxt(k, a[k])}</span><span class="x2 ${d < 0 ? "dgood" : d > 0 ? "dbad" : ""}">${d > 0 ? "+" : d < 0 ? "−" : "±"}${fmtValTxt(k, Math.abs(d))}</span></div>`; }).join("") +
+      `<button class="linkbtn" id="cmpOff" style="display:block;margin:10px auto 6px">Stop met vergelijken</button>`;
+    $("#cmpOff").onclick = () => { cmpRun = null; $("#resCmp").innerHTML = ""; drawChart(run); };
+  }
+
+  // ---------- weercorrectie (SAE J1349) ----------
+  // Correctiefactor: >1 betekent dat de motor minder levert dan bij standaardweer (25 °C, 990 hPa droge lucht).
+  function saeFactor(w) {
+    const pv = (w.rh / 100) * 6.1078 * Math.pow(10, (7.5 * w.t) / (w.t + 237.3)); // dampdruk (hPa)
+    return 1.18 * (990 / (w.p - pv)) * Math.sqrt((w.t + 273.15) / 298) - 0.18;
+  }
+  async function fetchWeather(run) {
+    const fix = run.pos; if (!fix || run.weather || run.sim) return;
+    try {
+      const u = `https://api.open-meteo.com/v1/forecast?latitude=${fix[0].toFixed(2)}&longitude=${fix[1].toFixed(2)}&current=temperature_2m,relative_humidity_2m,surface_pressure`;
+      const j = await (await fetch(u)).json();
+      if (!j.current) return;
+      run.weather = { t: j.current.temperature_2m, rh: j.current.relative_humidity_2m, p: j.current.surface_pressure };
+      save(); if (curRun === run) renderWeather(run);
+    } catch (e) { /* offline: dan geen weer */ }
+  }
+  function renderWeather(run) {
+    const w = run.weather, box = $("#resWx");
+    if (!w) { box.hidden = true; return; }
+    const cf = saeFactor(w), p = run.primary, br = p && isBrake(p.key);
+    const pct = (1 / cf - 1) * 100; // vermogen t.o.v. standaard
+    const corr = p && !br ? p.time * Math.pow(1 / cf, 0.6) : null; // vermogensgedeelte van de tijd schaalt ongeveer mee
+    box.hidden = false;
+    box.innerHTML = `<div class="wx-i">🌡 <b>${w.t.toFixed(0)} °C</b> · ${w.p.toFixed(0)} hPa · ${w.rh.toFixed(0)}% vocht</div>
+      <div class="wx-c">${br ? "Weer heeft weinig invloed op remmen." : `Vermogen ≈ <b>${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%</b> t.o.v. standaardweer (SAE J1349)${corr ? ` · gecorrigeerd ≈ <b>${corr.toFixed(2)} s</b>` : ""}`}</div>`;
+  }
   $("#resClose").addEventListener("click", () => { if (history.state && history.state.result) history.back(); else closeResult(); });
   window.addEventListener("popstate", () => { if ($("#result").classList.contains("open")) closeResult(); else if ($("#sheet").classList.contains("open")) closeSheet(); else if ($("#hud").classList.contains("open")) closeHud(); else if (CAM.on) closeCam(); });
 
@@ -1309,7 +1434,9 @@
     const uF = run.unit === "mph" ? E.MPH : E.KMH, tr = run.res.trace.filter((p) => p[0] >= -0.05);
     if (tr.length < 2) return;
     const pl = 34, pr = 10, pt = 14, pb = 24;
-    const tMax = tr[tr.length - 1][0], vMaxRaw = Math.max(...tr.map((p) => p[1] / uF));
+    const tr2 = cmpRun && cmpRun.res && cmpRun.res.trace ? cmpRun.res.trace.filter((p) => p[0] >= -0.05) : null;
+    const uF2 = cmpRun && cmpRun.unit === "mph" ? E.MPH : E.KMH;
+    const tMax = Math.max(tr[tr.length - 1][0], tr2 ? tr2[tr2.length - 1][0] : 0), vMaxRaw = Math.max(...tr.map((p) => p[1] / uF), ...(tr2 ? tr2.map((p) => p[1] / uF2) : [0]));
     const vStep = vMaxRaw > 300 ? 100 : vMaxRaw > 120 ? 50 : 20, vMax = Math.ceil(vMaxRaw / vStep) * vStep || 100;
     const X = (t) => pl + (t / tMax) * (w - pl - pr), Y = (v) => h - pb - (v / vMax) * (h - pt - pb);
     ctx.clearRect(0, 0, w, h);
@@ -1324,6 +1451,10 @@
     const lg = ctx.createLinearGradient(pl, 0, w - pr, 0); lg.addColorStop(0, "#a238ff"); lg.addColorStop(0.5, "#ff2f78"); lg.addColorStop(1, "#ff7a3d");
     ctx.beginPath(); tr.forEach((p, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, X(p[0]), Y(p[1] / uF)));
     ctx.strokeStyle = lg; ctx.lineWidth = 2.5; ctx.shadowColor = "#ff2f78"; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
+    if (tr2) { // vergelijkingsrun als stippellijn
+      ctx.beginPath(); tr2.forEach((p, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, X(p[0]), Y(p[1] / uF2)));
+      ctx.setLineDash([6, 5]); ctx.strokeStyle = "#c184ff"; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+    }
     // primaire split markeren
     const p = run.primary;
     if (p) {
@@ -1403,9 +1534,9 @@
     x.font = "800 34px Inter, sans-serif"; x.fillStyle = "#ffd0b8"; x.fillText((p ? p.label : "RUN").toUpperCase().split("").join(" "), W / 2, 560);
     x.font = "300px Anton, Impact"; const tg = x.createLinearGradient(0, 600, 0, 880); tg.addColorStop(0, "#fff"); tg.addColorStop(0.55, "#ffc2a3"); tg.addColorStop(1, "#ff2f78");
     x.shadowColor = "rgba(255,47,120,.7)"; x.shadowBlur = 60; x.fillStyle = tg;
-    const ts = p ? p.time.toFixed(2) : "—", tw = x.measureText(ts).width;
+    const brk = p && isBrake(p.key), ts = p ? primVal(p).toFixed(brk ? 1 : 2) : "—", tw = x.measureText(ts).width;
     x.fillText(ts, W / 2 - 30, 880); x.shadowBlur = 0;
-    x.font = "90px Anton, Impact"; x.fillStyle = "rgba(244,238,251,.7)"; x.textAlign = "left"; x.fillText("s", W / 2 - 30 + tw / 2 + 10, 880);
+    x.font = "90px Anton, Impact"; x.fillStyle = "rgba(244,238,251,.7)"; x.textAlign = "left"; x.fillText(brk ? "m" : "s", W / 2 - 30 + tw / 2 + 10, 880);
     x.textAlign = "center";
     const lgc = car && car.logo ? await loadImg(car.logo) : null;
     if (lgc) { const lh = 90, lw = Math.min(260, lh * lgc.width / lgc.height); x.drawImage(lgc, W - 60 - lw, 60, lw, lw * lgc.height / lgc.width); }
@@ -1413,7 +1544,7 @@
     x.font = "500 26px 'JetBrains Mono', monospace"; x.fillStyle = "rgba(173,158,196,.9)"; x.fillText(fmtDate(run.ts), W / 2, 1004);
     // kpi's
     const r = run.res, kp = [["TOP", Math.round(r.peakV / uF) + " " + uL], ["PIEK", r.peakG.toFixed(2) + " G"], ["GPS", r.hz + " HZ"]];
-    const splits = r.speedSplits.filter((s) => s.from === 0).slice(-3).map((s) => [`0-${s.to}`, s.time.toFixed(2) + " s"]).concat(r.distSplits.filter((s) => ["60ft", "1/8", "1/4"].includes(s.id)).map((s) => [s.label.toUpperCase(), s.time.toFixed(2) + " s"])).slice(0, 3);
+    const splits = brk ? [["REMTIJD", r.brake.time.toFixed(2) + " s"], ["VERTRAGING", r.brake.decelG.toFixed(2) + " G"]] : r.speedSplits.filter((s) => s.from === 0).slice(-3).map((s) => [`0-${s.to}`, s.time.toFixed(2) + " s"]).concat(r.distSplits.filter((s) => ["60ft", "1/8", "1/4"].includes(s.id)).map((s) => [s.label.toUpperCase(), s.time.toFixed(2) + " s"])).slice(0, 3);
     const rowsDraw = (items, y) => items.forEach(([l, v], i) => {
       const cx = W / 2 + (i - (items.length - 1) / 2) * 320;
       x.fillStyle = "rgba(34,21,51,.85)"; x.strokeStyle = "rgba(244,238,251,.12)"; x.lineWidth = 2;
@@ -1427,7 +1558,16 @@
   }
 
   // ================= instellingen =================
-  const GAUGE_STYLES = [["screamer", "Screamer"], ["villain", "Villain"], ["hyper", "Hyper"], ["gforce", "G-Force"], ["classic", "Classic"], ["rosso", "Rosso"], ["wit", "Wit"], ["affalterbach", "Affalterbach"], ["munchen", "München"], ["zuffenhausen", "Zuffenhausen"], ["maranello", "Maranello"], ["santagata", "Sant'Agata"], ["angelholm", "Ängelholm"], ["molsheim", "Molsheim"], ["woking", "Woking"]];
+  const GAUGE_STYLES = [["screamer", "Screamer"], ["villain", "Villain"], ["hyper", "Hyper"], ["gforce", "G-Force"], ["classic", "Classic"], ["rosso", "Rosso"], ["wit", "Wit"], ["affalterbach", "Carbon V8"], ["munchen", "Tricolore"], ["zuffenhausen", "Heritage"], ["maranello", "Giallo"], ["santagata", "Hexa"], ["angelholm", "Ghost"], ["molsheim", "Titanium"], ["woking", "Papaya"]];
+  function openAccuracy() {
+    openSheet(`<h2>Nauwkeurigheid</h2><div class="card about"><p>Afwijking t.o.v. de werkelijke tijd, bepaald met duizenden gesimuleerde runs (C63 840 pk, supercar, hypercar tot 500 km/u) met realistische sensorruis. Nog te bevestigen met vergelijkende metingen in de auto.</p>
+      <table class="acc"><tr><th>Bron</th><th>0–100</th><th>0–300 / 500</th><th>¼ mijl</th><th>100–0 remweg</th></tr>
+      <tr><td>Telefoon-GPS 1 Hz + sensor</td><td>± 0,05 s</td><td>± 0,15 / 0,2 s</td><td>± 0,04 s</td><td>± 0,7 m</td></tr>
+      <tr><td>Telefoon-GPS 1 Hz, zonder sensor</td><td>± 0,1–0,2 s</td><td>± 0,2–0,3 s</td><td>± 0,08 s</td><td>± 2 m</td></tr>
+      <tr><td>Ontvanger 10 Hz</td><td>± 0,03 s</td><td>± 0,04 / 0,08 s</td><td>± 0,02 s</td><td>± 0,15 m</td></tr>
+      <tr><td>Ontvanger 25 Hz</td><td>± 0,03 s</td><td>± 0,03 / 0,05 s</td><td>± 0,02 s</td><td>± 0,3 m</td></tr></table>
+      <p>Tips voor de beste meting: telefoon stevig vast, vrij zicht op de lucht, vlakke weg (helling &lt; 1%), en voor hoge snelheden een 10–25 Hz ontvanger.</p></div>`);
+  }
   function renderSettings() {
     const k = S.settings.source;
     $("#srcDesc").textContent = { phone: "Telefoon-GPS", usb: "USB-C GNSS-ontvanger", racebox: "RaceBox (Bluetooth)", ble: "Bluetooth NMEA-ontvanger", sim: "Demo-modus" }[k];
@@ -1435,6 +1575,8 @@
     $$("#simSeg button").forEach((b) => b.classList.toggle("on", b.dataset.c === S.settings.simCar));
     $("#setRollout").checked = S.settings.rollout; $("#setSound").checked = S.settings.sound; $("#setVibe").checked = S.settings.vibe; $("#setWake").checked = S.settings.wake;
     $("#ver").textContent = VERSION;
+    $("#rowAccuracy").onclick = openAccuracy;
+    $("#rowTour").onclick = () => showOnboarding();
     renderAccountRows();
     $("#backupInfo").textContent = S.backupAt ? `Laatste back-up: ${fmtDate(S.backupAt, true)} · ${S.runs.length} runs` : `Nog geen back-up · ${S.runs.length} runs`;
     const styles = GAUGE_STYLES;
@@ -1720,7 +1862,7 @@
     if (gc.width !== Math.round(gs * dpr)) { gc.width = gc.height = Math.round(gs * dpr); }
     const gctx = gc.getContext("2d"); gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const go = gaugeOpts(); if (go.style === "gforce") go.style = "screamer";
-    drawGauge(gctx, gs, Object.assign(go, { v: GA.v, max: GA.max, step: GA.want[1], target: T.type === "speed" ? T.to : null, unit: uLbl(), trail: GA.trail.slice(0, -1), sparks: [], live: true }));
+    drawGauge(gctx, gs, Object.assign(go, { v: GA.v, max: GA.max, step: GA.want[1], target: T.type === "speed" ? T.to : T.type === "brake" ? T.from : null, unit: uLbl(), trail: GA.trail.slice(0, -1), sparks: [], live: true }));
     ctx.globalAlpha = 0.97; ctx.drawImage(gc, gx, by, gs, gs); ctx.globalAlpha = 1;
     // G-bol
     const gr = gs * 0.4;
@@ -1737,7 +1879,7 @@
     ctx.fillStyle = tg; ctx.shadowColor = "rgba(255,47,120,.8)"; ctx.shadowBlur = u * 3;
     ctx.fillText(tEl.toFixed(2), cx, ty); ctx.shadowBlur = 0;
     ctx.font = `800 ${u * 2.2}px Inter, sans-serif`; ctx.fillStyle = "rgba(244,238,251,.75)";
-    const stTxt = CAM.outro ? "OPNAME STOPT" : CAM.awaitEnd ? "FINISH ✓  FILMT TOT GAS LOS" : M.state === "arming" && M.stillSince != null ? "STILSTAND CONTROLEREN " + Math.min(2, (now - M.stillSince) / 1000).toFixed(1) + " S" : { idle: "KLAAR VOOR START", arming: "STILSTAAN…", ready: "WACHT OP GROEN", running: "GAS!", "roll-wait": "RIJD ONDER " + (T.from || ""), "roll-armed": "VOL GAS BIJ " + (T.from || "") }[M.state] || "";
+    const stTxt = CAM.outro ? "OPNAME STOPT" : CAM.awaitEnd ? "FINISH ✓  FILMT TOT GAS LOS" : M.state === "arming" && M.stillSince != null ? "STILSTAND CONTROLEREN " + Math.min(2, (now - M.stillSince) / 1000).toFixed(1) + " S" : { idle: "KLAAR VOOR START", arming: "STILSTAAN…", ready: "WACHT OP GROEN", running: "GAS!", "roll-wait": "RIJD ONDER " + (T.from || ""), "roll-armed": "VOL GAS BIJ " + (T.from || ""), "brake-wait": "RIJ BOVEN " + ((T.from || 0) + 8), "brake-armed": "VOL REMMEN BIJ " + (T.from || ""), braking: "REMMEN!" }[M.state] || "";
     ctx.fillText(stTxt.split("").join(" ").replace(/ {3}/g, "   "), cx, ty + u * 3.8);
     const lights = $$("#tree i").map((el) => el.className);
     if (M.state === "ready" || M.state === "running") lights.forEach((c, i) => {
@@ -1775,7 +1917,7 @@
       ctx.textAlign = "center"; ctx.font = `800 ${u * 2.6}px Inter, sans-serif`; ctx.fillStyle = "#ffd0b8";
       ctx.fillText((p ? p.label : "RUN").toUpperCase().split("").join(" "), W / 2, py + u * 7);
       ctx.font = `${u * 16}px Anton, Impact`; ctx.fillStyle = "#fff"; ctx.shadowColor = "rgba(255,47,120,.9)"; ctx.shadowBlur = u * 4;
-      ctx.fillText(p ? p.time.toFixed(2) + " s" : "—", W / 2, py + u * 24); ctx.shadowBlur = 0;
+      ctx.fillText(p ? fmtValTxt(p.key, primVal(p)) : "—", W / 2, py + u * 24); ctx.shadowBlur = 0;
       ctx.font = `700 ${u * 2.6}px "JetBrains Mono", monospace`; ctx.fillStyle = "rgba(244,238,251,.8)";
       const dy = dyno(r);
       ctx.fillText(`TOP ${Math.round(r.res.peakV / uf())} ${uLbl()} · ${r.res.peakG.toFixed(2)} G · ≈${dy.hp} pk`, W / 2, py + u * 30);
@@ -1820,20 +1962,29 @@
   // ================= online: account, ranglijst, vrienden =================
   const OL = window.Online;
   const onlineOn = () => !!(OL && OL.configured());
-  let boardMetric = null, boardScope = "all", boardSeq = 0;
+  let boardMetric = null, boardScope = "all", boardSeq = 0, boardClass = "", boardRows = [];
+  const CLASSES = [["", "Alle klassen"], ["k300", "≤ 300 pk"], ["k600", "300–600 pk"], ["k900", "600–900 pk"], ["k900p", "900+ pk"]];
   function boardMetrics() {
     const sp = unit() === "mph" ? [["S:mph:0-60", "0–60"], ["S:mph:60-130", "60–130"], ["S:mph:0-100", "0–100"], ["S:mph:0-150", "0–150"]]
       : [["S:kmh:0-100", "0–100"], ["S:kmh:100-200", "100–200"], ["S:kmh:0-200", "0–200"], ["S:kmh:0-300", "0–300"]];
-    return sp.concat([["D:60ft", "60 ft"], ["D:1/8", "⅛ mijl"], ["D:1/4", "¼ mijl"], ["top", "Topsnelheid"]]);
+    return sp.concat([["D:60ft", "60 ft"], ["D:1/8", "⅛ mijl"], ["D:1/4", "¼ mijl"], ["top", "Topsnelheid"], [unit() === "mph" ? "B:mph:60-0" : "B:kmh:100-0", unit() === "mph" ? "60–0 remmen" : "100–0 remmen"]]);
   }
   const shareable = (r) => !!(r && !r.sim && r.res && ["phone", "usb", "racebox", "ble"].includes(r.src) && r.res.peakV * 3.6 <= 520 && r.ts >= (S.shareFrom || 0));
+  // Snelheidscurve voor de server-controle: max 150 punten [t (s), v (km/u), d (m)], inclusief het hoogste punt.
+  function traceForUpload(r) {
+    const tr = r.res.trace || []; if (tr.length < 5) return null;
+    const step = Math.max(1, Math.ceil(tr.length / 150)), out = [];
+    let iMax = 0; tr.forEach((p, i) => { if (p[1] > tr[iMax][1]) iMax = i; });
+    for (let i = 0; i < tr.length; i++) if (i % step === 0 || i === iMax || i === tr.length - 1) out.push([+tr[i][0].toFixed(3), +(tr[i][1] * 3.6).toFixed(1), +tr[i][2].toFixed(1)]);
+    return out;
+  }
   function runRow(r) {
     const c = S.cars.find((x) => x.id === r.carId) || {};
     const int = (v, lo, hi) => (+v >= lo && +v <= hi ? Math.round(+v) : null);
     return {
       local_id: r.id, run_at: new Date(r.ts).toISOString(), car_name: String(r.carName || "Auto").slice(0, 60), car_make: c.make ? String(c.make).slice(0, 80) : null,
       car_hp: int(c.hp, 1, 5000), car_kg: int(c.kg, 300, 6000), source: r.src, hz: Math.max(0.1, Math.min(100, r.res.hz || 0.1)),
-      slope: r.res.slope == null ? null : Math.max(-30, Math.min(30, r.res.slope)), peak_kmh: Math.min(520, +(r.res.peakV * 3.6).toFixed(1)),
+      slope: r.res.slope == null ? null : Math.max(-30, Math.min(30, r.res.slope)), peak_kmh: Math.min(520, +(r.res.peakV * 3.6).toFixed(1)), trace: traceForUpload(r),
     };
   }
   let syncing = null;
@@ -1843,7 +1994,11 @@
     syncing = (async () => {
       for (const r of S.runs.slice().reverse()) {
         if (!shareable(r) || r.shared === "ok" || r.shared === "rejected") continue;
-        try { const sp = runSplits(r); await OL.uploadRun(runRow(r), Object.keys(sp).map((k) => ({ metric: k, time_s: sp[k] }))); r.shared = "ok"; }
+        try {
+          const sp = runSplits(r);
+          await OL.uploadRun(runRow(r), Object.keys(sp).map((k) => (isBrake(k) ? { metric: k, time_s: r.res.brake.time, dist_m: r.res.brake.dist } : { metric: k, time_s: sp[k] })));
+          r.shared = "ok";
+        }
         catch (e) { if (/internet|fetch/i.test(e.message)) break; r.shared = "rejected"; r.shareErr = e.message; }
         save();
       }
@@ -1856,7 +2011,7 @@
       await syncRuns();
       if (run.shared !== "ok" || curRun !== run) return;
       if (run.res.slope != null && Math.abs(run.res.slope) > 1) { $("#resTags").insertAdjacentHTML("beforeend", `<span class="tag warn">TELT NIET MEE (HELLING)</span>`); return; }
-      const [all, fr] = await Promise.all([OL.rank(run.primary.key, run.primary.time, "all"), OL.rank(run.primary.key, run.primary.time, "friends")]);
+      const [all, fr] = await Promise.all([OL.rank(run.primary.key, primVal(run.primary), "all"), OL.rank(run.primary.key, primVal(run.primary), "friends")]);
       if (curRun !== run) return;
       $("#resTags").insertAdjacentHTML("beforeend", `<span class="tag gold">🌍 #${all} WERELDWIJD</span>${fr ? `<span class="tag demo">👥 #${fr} VRIENDEN</span>` : ""}`);
     } catch (e) { /* offline: rang komt later */ }
@@ -1876,6 +2031,7 @@
         ${up ? `<label class="field"><span>Username</span><input id="aUser" autocomplete="username" maxlength="20" placeholder="bijv. StreetScreamer" autocapitalize="off"></label>` : ""}
         <label class="field"><span>E-mail</span><input id="aMail" type="email" autocomplete="email" inputmode="email" autocapitalize="off"></label>
         <label class="field"><span>Wachtwoord</span><input id="aPw" type="password" autocomplete="${up ? "new-password" : "current-password"}" minlength="6"></label>
+        ${up ? `<label class="i-remember"><input type="checkbox" id="aTerms"> <span>Ik ga akkoord met de <a href="voorwaarden.html" target="_blank">voorwaarden</a> en <a href="privacy.html" target="_blank">privacyverklaring</a></span></label>` : ""}
         <button class="btn pri" id="aGo">${up ? "Account maken" : "Inloggen"}</button>
         ${up ? "" : `<button class="linkbtn" id="aForgot" style="display:block;margin:12px auto 0">Wachtwoord vergeten?</button>`}
         <p class="note">Anderen zien alleen je username, auto en tijden — nooit je e-mail of locatie.</p></div>`;
@@ -1885,6 +2041,7 @@
         btn.disabled = true; btn.textContent = "Even geduld…";
         try {
           if (up) {
+            if (!$("#aTerms", auth).checked) throw new Error("Ga akkoord met de voorwaarden en privacyverklaring om een account te maken.");
             const r = await OL.signUp({ email: mail, password: pw, username: $("#aUser", auth).value });
             if (r.needsConfirm) { toast("Check je mail en tik op de bevestigingslink", 5000); auth.dataset.mode = "in"; }
             else toast("Welkom bij ScreamTime, @" + (OL.profile ? OL.profile.username : "") + "!");
@@ -1905,6 +2062,8 @@
     const ms = boardMetrics();
     if (!boardMetric || !ms.some((m) => m[0] === boardMetric)) boardMetric = ms[0][0];
     $("#boardMetrics").innerHTML = ms.map(([k, n]) => `<button data-k="${k}" class="${k === boardMetric ? "on" : ""}">${n}</button>`).join("");
+    $("#boardClass").innerHTML = CLASSES.map(([k, n]) => `<button data-c="${k}" class="${k === boardClass ? "on" : ""}">${n}</button>`).join("");
+    renderNews();
     $$("#boardScope button").forEach((b) => b.classList.toggle("on", b.dataset.s === boardScope));
     loadBoard();
   }
@@ -1913,20 +2072,58 @@
     if (boardScope === "friends" && !OL.loggedIn) { list.innerHTML = `<div class="card empty">${icon("i-car")}<div>Log in om een vriendenranglijst te maken.</div></div>`; return; }
     list.innerHTML = `<div class="card empty"><div>Ranglijst laden…</div></div>`;
     try {
-      const rows = await OL.board(boardMetric, boardScope);
+      const brakes = boardMetric.startsWith("B:");
+      const rows = await OL.board(boardMetric, boardScope, brakes ? "" : boardClass);
+      boardRows = rows;
       if (seq !== boardSeq) return;
       const me = OL.user ? OL.user.id : null, top = boardMetric === "top";
       if (!rows.length) { list.innerHTML = `<div class="card empty">${icon("i-flag")}<div>${boardScope === "friends" ? "Nog geen tijden van jou of je vrienden. Voeg vrienden toe via de knop hierboven." : "Nog niemand op dit onderdeel. Pak de eerste plek!"}</div></div>`; return; }
       list.innerHTML = `<div class="card board">${rows.map((r, i) => {
-        const val = top ? `${Math.round(r.peak_kmh / (unit() === "mph" ? 1.609344 : 1))}<small>${uLbl()}</small>` : `${(+r.time_s).toFixed(2)}<small>s</small>`;
-        return `<div class="brow ${r.user_id === me ? "me" : ""}"><span class="rk ${i < 3 ? "r" + (i + 1) : ""}">${i + 1}</span>
+        const val = top ? `${Math.round(r.peak_kmh / (unit() === "mph" ? 1.609344 : 1))}<small>${uLbl()}</small>` : brakes ? `${(+r.dist_m).toFixed(1)}<small>m</small>` : `${(+r.time_s).toFixed(2)}<small>s</small>`;
+        return `<div class="brow ${r.user_id === me ? "me" : ""}" data-i="${i}"><span class="rk ${i < 3 ? "r" + (i + 1) : ""}">${i + 1}</span>
           <div class="bu"><b>${esc(r.username)}${r.user_id === me ? ` <span class="you">JIJ</span>` : ""}${r.verified ? ` <span class="ver">✓ VERIFIED</span>` : ""}</b>
           <span>${esc(r.car_name)}${r.car_hp ? " · " + r.car_hp + " pk" : ""} · ${fmtDate(Date.parse(r.run_at), true)}</span></div>
           <div class="bt">${val}</div></div>`;
-      }).join("")}</div><p class="note" style="text-align:center">✓ verified = gemeten met een 10+ Hz GPS-ontvanger. Runs met meer dan 1% helling tellen niet mee.</p>`;
+      }).join("")}</div><p class="note" style="text-align:center">✓ verified = gemeten met een 10+ Hz GPS-ontvanger. De server controleert elke snelheidscurve; runs met meer dan 1% helling tellen niet mee. Tik op een tijd voor details.</p>`;
     } catch (e) { if (seq === boardSeq) list.innerHTML = `<div class="card empty"><div>${esc(e.message)}</div></div>`; }
   }
   $("#boardMetrics").addEventListener("click", (e) => { const b = e.target.closest("[data-k]"); if (!b) return; boardMetric = b.dataset.k; $$("#boardMetrics button").forEach((x) => x.classList.toggle("on", x === b)); loadBoard(); });
+  $("#boardClass").addEventListener("click", (e) => { const b = e.target.closest("[data-c]"); if (!b) return; boardClass = b.dataset.c; $$("#boardClass button").forEach((x) => x.classList.toggle("on", x === b)); loadBoard(); });
+  $("#boardList").addEventListener("click", (e) => { const b = e.target.closest("[data-i]"); if (b) openBoardRow(boardRows[+b.dataset.i]); });
+  function openBoardRow(r) {
+    if (!r) return;
+    const me = OL.user && r.user_id === OL.user.id, top = boardMetric === "top", brakes = boardMetric.startsWith("B:");
+    const val = top ? `${Math.round(r.peak_kmh)} km/u` : brakes ? `${(+r.dist_m).toFixed(1)} m · ${(+r.time_s).toFixed(2)} s` : `${(+r.time_s).toFixed(2)} s`;
+    openSheet(`<h2>@${esc(r.username)}</h2><div class="card rows">
+      <div class="row"><div class="tx"><b>${esc(top ? "Topsnelheid" : metricLabel(boardMetric))}</b><span>${val}</span></div></div>
+      <div class="row"><div class="tx"><b>${esc(r.car_name)}</b><span>${esc([r.car_make, r.car_hp ? r.car_hp + " pk" : ""].filter(Boolean).join(" · ") || "—")}</span></div></div>
+      <div class="row"><div class="tx"><b>Meting</b><span>${fmtDate(Date.parse(r.run_at))} · ${(+r.hz).toFixed(1)} Hz${r.verified ? " · ✓ verified" : ""}</span></div></div></div>
+      ${me || !OL.loggedIn ? "" : `<div style="height:12px"></div><button class="btn danger" id="rep">${icon("i-flag")}Meld verdachte tijd</button><p class="note">Klopt deze tijd niet? De beheerder bekijkt meldingen en haalt valse tijden weg.</p>`}`, (b) => {
+      const rb = $("#rep", b); if (!rb) return;
+      rb.onclick = async () => {
+        const why = prompt("Waarom is deze tijd verdacht? (bijv. onmogelijk voor deze auto, bergaf, demo)");
+        if (!why || !why.trim()) return;
+        try { await OL.report(r.run_id, why.trim()); toast("Bedankt, je melding is verstuurd"); closeSheet(); } catch (e) { toast(e.message, 3500); }
+      };
+    });
+  }
+  // Nieuws: vrienden die sinds je vorige bezoek sneller waren dan jij.
+  let newsItems = [];
+  async function loadNews() {
+    if (!onlineOn() || !OL.loggedIn) return;
+    const since = S.newsSeen || new Date(Date.now() - 14 * 864e5).toISOString();
+    try {
+      newsItems = await OL.friendsNews(since);
+      if (newsItems.length) { const n = newsItems[0]; toast(`😈 @${n.username} heeft je ${metricLabel(n.metric)} verbroken: ${(+n.time_s).toFixed(2)} s`, 5000); }
+      if ($("#v-board").classList.contains("active")) renderNews();
+    } catch (e) { /* offline */ }
+  }
+  function renderNews() {
+    const box = $("#boardNews");
+    if (!newsItems.length) { box.innerHTML = ""; return; }
+    box.innerHTML = `<div class="card news"><h4>😈 NIEUWS VAN VRIENDEN <button class="linkbtn" id="newsOk">Gezien</button></h4>${newsItems.slice(0, 5).map((n) => `<div class="nitem"><b>@${esc(n.username)}</b> is sneller op <b>${metricLabel(n.metric)}</b>: ${(+n.time_s).toFixed(2)} s <span>(jij ${(+n.mine).toFixed(2)} s · ${esc(n.car_name)})</span></div>`).join("")}</div>`;
+    $("#newsOk").onclick = () => { S.newsSeen = new Date().toISOString(); save(); newsItems = []; renderNews(); };
+  }
   $("#boardScope").addEventListener("click", (e) => { const b = e.target.closest("[data-s]"); if (!b) return; boardScope = b.dataset.s; $$("#boardScope button").forEach((x) => x.classList.toggle("on", x === b)); loadBoard(); });
 
   function openFriends() {
@@ -1991,6 +2188,7 @@
     if ($("#v-board").classList.contains("active")) renderBoard();
     if ($("#v-settings").classList.contains("active")) renderAccountRows();
     syncRuns();
+    if (OL.loggedIn && !newsItems.length) loadNews();
   });
   window.addEventListener("online", () => syncRuns());
 
@@ -2087,7 +2285,33 @@
   function exitIntro(stopFx) {
     const el = INTRO.el;
     el.classList.add("s-out");
-    setTimeout(() => { el.hidden = true; el.className = "intro"; $("#iLogin").hidden = true; $("#iTree").style.opacity = ""; if (stopFx) stopFx(); sizeGauge(); requestWake(); }, 600);
+    setTimeout(() => { el.hidden = true; el.className = "intro"; $("#iLogin").hidden = true; $("#iTree").style.opacity = ""; if (stopFx) stopFx(); sizeGauge(); requestWake(); if (!S.onboarded) showOnboarding(); }, 600);
+  }
+
+  // ================= rondleiding (eerste keer) =================
+  const ONB = [
+    { ic: "i-gauge", t: "Welkom bij ScreamTime", x: "Meet 0–100 tot 0–500 km/u, ¼ mijl en remwegen. Met records, tips per auto, een camera-overlay en een ranglijst met je vrienden." },
+    { ic: "i-phone", t: "Zet je telefoon stevig vast", x: "Gebruik een houder op dashboard of voorruit, scherm naar je toe. Een losse telefoon schuift en geeft verkeerde metingen. Liggend of staand maakt niet uit." },
+    { ic: "i-flag", t: "Stilstand → lampen → GAS", x: "Druk op START en sta stil. De app controleert 2 seconden of de auto echt stilstaat, telt af met de startlampen en start de timer zodra je wegrijdt. Na de finish zie je je tijd, grafiek en tips." },
+    { ic: "i-sat", t: "Hoe nauwkeurig?", x: "Telefoon-GPS meet ± 1× per seconde; de bewegingssensor vult het aan tot enkele honderdsten. Voor super- en hypercars: een 10–25 Hz ontvanger (USB-C of RaceBox) is veel preciezer en geeft een ✓ verified-badge." },
+    { ic: "i-stop", t: "Veilig meten", x: "Meet alleen op een afgesloten terrein of circuit. Houd je op de openbare weg aan de regels en bedien de app niet tijdens het rijden.", ack: true },
+  ];
+  function showOnboarding() {
+    let i = 0;
+    const draw = () => {
+      const s1 = ONB[i], last = i === ONB.length - 1;
+      openSheet(`<div class="onb">${icon(s1.ic, "i onb-ic")}<h2>${s1.t}</h2><p>${s1.x}</p>
+        ${s1.ack ? `<label class="i-remember onb-ack"><input type="checkbox" id="onbAck"> <span>Ik meet alleen waar het veilig en toegestaan is, en ga akkoord met de <a href="voorwaarden.html" target="_blank">voorwaarden</a>.</span></label>` : ""}
+        <div class="onb-dots">${ONB.map((_, k) => `<i class="${k === i ? "on" : ""}"></i>`).join("")}</div>
+        <div class="btns">${i ? `<button class="btn sec" id="onbPrev">Terug</button>` : `<span></span>`}<button class="btn pri" id="onbNext">${last ? "Aan de slag" : "Volgende"}</button></div></div>`, (b) => {
+        const pv = $("#onbPrev", b); if (pv) pv.onclick = () => { i--; draw(); };
+        $("#onbNext", b).onclick = () => {
+          if (last) { if (!$("#onbAck", b).checked) { toast("Vink eerst aan dat je veilig meet"); return; } S.onboarded = 1; save(); closeSheet(); return; }
+          i++; draw();
+        };
+      });
+    };
+    draw();
   }
 
   let introMode = "in";
@@ -2104,6 +2328,7 @@
       $("#iPw").setAttribute("autocomplete", m === "up" ? "new-password" : "current-password");
       $("#iGo").textContent = m === "up" ? "Account maken" : "Inloggen";
       $("#iForgot").style.visibility = m === "up" ? "hidden" : "visible";
+      $("#iTermsF").hidden = m !== "up";
     };
     setMode("in");
     $$("#iTabs button").forEach((b) => b.onclick = () => setMode(b.dataset.t));
@@ -2114,6 +2339,7 @@
       try {
         OL.setRemember($("#iRemember").checked);
         if (introMode === "up") {
+          if (!$("#iTerms").checked) throw new Error("Ga akkoord met de voorwaarden en privacyverklaring om een account te maken.");
           const r = await OL.signUp({ email: mail, password: pw, username: $("#iUser").value });
           if (r.needsConfirm) { $("#iMsg").textContent = "Check je mail en tik op de bevestigingslink."; setMode("in"); btn.disabled = false; return; }
         } else await OL.signIn(mail, pw);
@@ -2154,6 +2380,10 @@
   }
   INTRO.el.addEventListener("click", (e) => { if (!e.target.closest("#iLogin") && INTRO.onSkip) INTRO.onSkip(); });
 
+  // ================= foutmeldingen =================
+  window.addEventListener("error", (e) => { if (onlineOn()) OL.logError(VERSION, e.message || "error", e.error && e.error.stack); });
+  window.addEventListener("unhandledrejection", (e) => { const r = e.reason || {}; if (onlineOn()) OL.logError(VERSION, "promise: " + (r.message || String(r)), r.stack); });
+
   // ================= start =================
   if (onlineOn()) { // alleen verbinden als er op deze telefoon al eens is ingelogd; anders pas bij het tabblad Ranglijst
     let had = false; try { had = !!localStorage.getItem("screamtime-auth"); } catch (e) { /* geen opslag */ }
@@ -2168,5 +2398,5 @@
   document.addEventListener("click", unlockAudio, { once: true });
 
   // alleen voor tests
-  window.__SL = { inject: { fix: onFix, imu: onImu }, stopSource, makeCard, S: () => S, M, SRC, TEL, CAM, openCam, drawCam, drawGauge, showResult, startMeasure, showTab, openSourceSheet };
+  window.__SL = { fetchWeather, saeFactor, syncRuns: () => syncRuns(), loadNews, openCompare, inject: { fix: onFix, imu: onImu }, stopSource, makeCard, S: () => S, M, SRC, TEL, CAM, openCam, drawCam, drawGauge, showResult, startMeasure, showTab, openSourceSheet };
 })();
