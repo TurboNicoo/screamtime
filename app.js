@@ -1,7 +1,7 @@
 /* Screamer Launch — app (UI, meet-statemachine, gauges, resultaten). */
 (function () {
   "use strict";
-  const VERSION = "1.4.0";
+  const VERSION = "1.5.0";
   const KEY = "screamerlaunch_v1";
   const E = window.Engine, SR = window.Sources;
   const $ = (s, r = document) => r.querySelector(s);
@@ -1274,11 +1274,16 @@
     const rv = $("#rVid"); if (rv) rv.onclick = saveVideo;
     $("#rShare").onclick = () => shareRun(run);
     if (fresh) $("#rAgain").onclick = () => { closeResult(); setTimeout(startMeasure, 250); };
-    else $("#rDel").onclick = () => { if (!confirm("Deze run verwijderen?")) return; S.runs = S.runs.filter((x) => x.id !== run.id); save(); closeResult(); renderResults(); };
+    else $("#rDel").onclick = () => {
+      if (!confirm(run.shared === "ok" ? "Deze run verwijderen? Hij verdwijnt ook uit de online ranglijst." : "Deze run verwijderen?")) return;
+      if (run.shared === "ok" && onlineOn() && OL.loggedIn) OL.deleteRun(run.id).catch(() => toast("Online verwijderen mislukt — probeer later opnieuw"));
+      S.runs = S.runs.filter((x) => x.id !== run.id); save(); closeResult(); renderResults();
+    };
     $("#result").classList.add("open");
     $("#result").scrollTop = 0;
     requestAnimationFrame(() => drawChart(run));
     try { renderTips(run); } catch (e) { console.error(e); $("#resTips").innerHTML = ""; }
+    showRank(run);
     // tijd-teller
     const target = p ? p.time : 0, el = $("#resTime");
     if (fresh && p) {
@@ -1430,6 +1435,7 @@
     $$("#simSeg button").forEach((b) => b.classList.toggle("on", b.dataset.c === S.settings.simCar));
     $("#setRollout").checked = S.settings.rollout; $("#setSound").checked = S.settings.sound; $("#setVibe").checked = S.settings.vibe; $("#setWake").checked = S.settings.wake;
     $("#ver").textContent = VERSION;
+    renderAccountRows();
     $("#backupInfo").textContent = S.backupAt ? `Laatste back-up: ${fmtDate(S.backupAt, true)} · ${S.runs.length} runs` : `Nog geen back-up · ${S.runs.length} runs`;
     const styles = GAUGE_STYLES;
     const list = $("#styleList");
@@ -1791,6 +1797,7 @@
     if (t === "results") { if (S.settings.source === "sim" && S.runs.some((r) => r.sim)) resFilter = "demo"; renderResults(); }
     if (t === "garage") renderGarage();
     if (t === "settings") renderSettings();
+    if (t === "board") { renderBoard(); if (onlineOn()) OL.init().then(() => { if ($("#v-board").classList.contains("active")) renderBoard(); }).catch((e) => toast(e.message)); }
     if (t === "meten") { renderMeten(); requestAnimationFrame(sizeGauge); }
     window.scrollTo(0, 0);
   }
@@ -1801,6 +1808,7 @@
     if ($("#v-results").classList.contains("active")) renderResults();
     if ($("#v-garage").classList.contains("active")) renderGarage();
     if ($("#v-settings").classList.contains("active")) renderSettings();
+    if ($("#v-board").classList.contains("active")) renderBoard();
   }
 
   document.addEventListener("visibilitychange", () => {
@@ -1808,6 +1816,183 @@
     else if (M.state === "idle" && (S.settings.source === "phone" || S.settings.source === "sim")) stopSource();
   });
   window.addEventListener("resize", sizeGauge);
+
+  // ================= online: account, ranglijst, vrienden =================
+  const OL = window.Online;
+  const onlineOn = () => !!(OL && OL.configured());
+  let boardMetric = null, boardScope = "all", boardSeq = 0;
+  function boardMetrics() {
+    const sp = unit() === "mph" ? [["S:mph:0-60", "0–60"], ["S:mph:60-130", "60–130"], ["S:mph:0-100", "0–100"], ["S:mph:0-150", "0–150"]]
+      : [["S:kmh:0-100", "0–100"], ["S:kmh:100-200", "100–200"], ["S:kmh:0-200", "0–200"], ["S:kmh:0-300", "0–300"]];
+    return sp.concat([["D:60ft", "60 ft"], ["D:1/8", "⅛ mijl"], ["D:1/4", "¼ mijl"], ["top", "Topsnelheid"]]);
+  }
+  const shareable = (r) => !!(r && !r.sim && r.res && ["phone", "usb", "racebox", "ble"].includes(r.src) && r.res.peakV * 3.6 <= 520 && r.ts >= (S.shareFrom || 0));
+  function runRow(r) {
+    const c = S.cars.find((x) => x.id === r.carId) || {};
+    const int = (v, lo, hi) => (+v >= lo && +v <= hi ? Math.round(+v) : null);
+    return {
+      local_id: r.id, run_at: new Date(r.ts).toISOString(), car_name: String(r.carName || "Auto").slice(0, 60), car_make: c.make ? String(c.make).slice(0, 80) : null,
+      car_hp: int(c.hp, 1, 5000), car_kg: int(c.kg, 300, 6000), source: r.src, hz: Math.max(0.1, Math.min(100, r.res.hz || 0.1)),
+      slope: r.res.slope == null ? null : Math.max(-30, Math.min(30, r.res.slope)), peak_kmh: Math.min(520, +(r.res.peakV * 3.6).toFixed(1)),
+    };
+  }
+  let syncing = null;
+  function syncRuns() { // deelt nog niet gedeelde echte runs; geeft een promise terug
+    if (syncing) return syncing;
+    if (!onlineOn() || !OL.loggedIn || S.settings.share === false) return Promise.resolve();
+    syncing = (async () => {
+      for (const r of S.runs.slice().reverse()) {
+        if (!shareable(r) || r.shared === "ok" || r.shared === "rejected") continue;
+        try { const sp = runSplits(r); await OL.uploadRun(runRow(r), Object.keys(sp).map((k) => ({ metric: k, time_s: sp[k] }))); r.shared = "ok"; }
+        catch (e) { if (/internet|fetch/i.test(e.message)) break; r.shared = "rejected"; r.shareErr = e.message; }
+        save();
+      }
+    })().finally(() => { syncing = null; });
+    return syncing;
+  }
+  async function showRank(run) { // plaats in de ranglijst onder de uitslag
+    if (!onlineOn() || !OL.loggedIn || !run.primary || !shareable(run) || S.settings.share === false) return;
+    try {
+      await syncRuns();
+      if (run.shared !== "ok" || curRun !== run) return;
+      if (run.res.slope != null && Math.abs(run.res.slope) > 1) { $("#resTags").insertAdjacentHTML("beforeend", `<span class="tag warn">TELT NIET MEE (HELLING)</span>`); return; }
+      const [all, fr] = await Promise.all([OL.rank(run.primary.key, run.primary.time, "all"), OL.rank(run.primary.key, run.primary.time, "friends")]);
+      if (curRun !== run) return;
+      $("#resTags").insertAdjacentHTML("beforeend", `<span class="tag gold">🌍 #${all} WERELDWIJD</span>${fr ? `<span class="tag demo">👥 #${fr} VRIENDEN</span>` : ""}`);
+    } catch (e) { /* offline: rang komt later */ }
+  }
+
+  function renderBoard() {
+    const auth = $("#boardAuth");
+    if (!onlineOn()) {
+      auth.innerHTML = `<div class="card empty">${icon("i-trophy")}<div><b style="color:var(--ink)">De online ranglijst wordt gekoppeld</b><br>Zodra hij actief is kun je hier een account maken, vrienden toevoegen en je tijden vergelijken.</div></div>`;
+      $("#boardBody").hidden = true; return;
+    }
+    $("#boardBody").hidden = false;
+    if (!OL.loggedIn) {
+      const up = auth.dataset.mode === "up";
+      auth.innerHTML = `<div class="card acct">
+        <div class="mini-seg" id="acctTab"><button data-t="in" class="${up ? "" : "on"}">Inloggen</button><button data-t="up" class="${up ? "on" : ""}">Account maken</button></div>
+        ${up ? `<label class="field"><span>Username</span><input id="aUser" autocomplete="username" maxlength="20" placeholder="bijv. StreetScreamer" autocapitalize="off"></label>` : ""}
+        <label class="field"><span>E-mail</span><input id="aMail" type="email" autocomplete="email" inputmode="email" autocapitalize="off"></label>
+        <label class="field"><span>Wachtwoord</span><input id="aPw" type="password" autocomplete="${up ? "new-password" : "current-password"}" minlength="6"></label>
+        <button class="btn pri" id="aGo">${up ? "Account maken" : "Inloggen"}</button>
+        ${up ? "" : `<button class="linkbtn" id="aForgot" style="display:block;margin:12px auto 0">Wachtwoord vergeten?</button>`}
+        <p class="note">Anderen zien alleen je username, auto en tijden — nooit je e-mail of locatie.</p></div>`;
+      $$("#acctTab button", auth).forEach((b) => b.onclick = () => { auth.dataset.mode = b.dataset.t; renderBoard(); });
+      $("#aGo", auth).onclick = async () => {
+        const btn = $("#aGo", auth), mail = $("#aMail", auth).value, pw = $("#aPw", auth).value;
+        btn.disabled = true; btn.textContent = "Even geduld…";
+        try {
+          if (up) {
+            const r = await OL.signUp({ email: mail, password: pw, username: $("#aUser", auth).value });
+            if (r.needsConfirm) { toast("Check je mail en tik op de bevestigingslink", 5000); auth.dataset.mode = "in"; }
+            else toast("Welkom bij ScreamTime, @" + (OL.profile ? OL.profile.username : "") + "!");
+          } else await OL.signIn(mail, pw);
+        } catch (e) { toast(e.message, 4000); btn.disabled = false; btn.textContent = up ? "Account maken" : "Inloggen"; return; }
+        renderBoard();
+      };
+      const fg = $("#aForgot", auth);
+      if (fg) fg.onclick = async () => {
+        const mail = $("#aMail", auth).value.trim();
+        if (!mail) { toast("Vul eerst je e-mailadres in"); return; }
+        try { await OL.resetPassword(mail); toast("Je krijgt een mail om een nieuw wachtwoord te kiezen", 5000); } catch (e) { toast(e.message, 4000); }
+      };
+    } else {
+      auth.innerHTML = `<div class="card me-card"><div class="av">${esc(OL.profile.username.slice(0, 1).toUpperCase())}</div><div class="tx"><b>@${esc(OL.profile.username)}</b><span>${S.settings.share === false ? "Delen staat uit (Instellingen)" : "Je echte runs worden gedeeld"}</span></div><button class="btn sec" id="openFriends">${icon("i-plus")}Vrienden</button></div>`;
+      $("#openFriends", auth).onclick = openFriends;
+    }
+    const ms = boardMetrics();
+    if (!boardMetric || !ms.some((m) => m[0] === boardMetric)) boardMetric = ms[0][0];
+    $("#boardMetrics").innerHTML = ms.map(([k, n]) => `<button data-k="${k}" class="${k === boardMetric ? "on" : ""}">${n}</button>`).join("");
+    $$("#boardScope button").forEach((b) => b.classList.toggle("on", b.dataset.s === boardScope));
+    loadBoard();
+  }
+  async function loadBoard() {
+    const seq = ++boardSeq, list = $("#boardList");
+    if (boardScope === "friends" && !OL.loggedIn) { list.innerHTML = `<div class="card empty">${icon("i-car")}<div>Log in om een vriendenranglijst te maken.</div></div>`; return; }
+    list.innerHTML = `<div class="card empty"><div>Ranglijst laden…</div></div>`;
+    try {
+      const rows = await OL.board(boardMetric, boardScope);
+      if (seq !== boardSeq) return;
+      const me = OL.user ? OL.user.id : null, top = boardMetric === "top";
+      if (!rows.length) { list.innerHTML = `<div class="card empty">${icon("i-flag")}<div>${boardScope === "friends" ? "Nog geen tijden van jou of je vrienden. Voeg vrienden toe via de knop hierboven." : "Nog niemand op dit onderdeel. Pak de eerste plek!"}</div></div>`; return; }
+      list.innerHTML = `<div class="card board">${rows.map((r, i) => {
+        const val = top ? `${Math.round(r.peak_kmh / (unit() === "mph" ? 1.609344 : 1))}<small>${uLbl()}</small>` : `${(+r.time_s).toFixed(2)}<small>s</small>`;
+        return `<div class="brow ${r.user_id === me ? "me" : ""}"><span class="rk ${i < 3 ? "r" + (i + 1) : ""}">${i + 1}</span>
+          <div class="bu"><b>${esc(r.username)}${r.user_id === me ? ` <span class="you">JIJ</span>` : ""}${r.verified ? ` <span class="ver">✓ VERIFIED</span>` : ""}</b>
+          <span>${esc(r.car_name)}${r.car_hp ? " · " + r.car_hp + " pk" : ""} · ${fmtDate(Date.parse(r.run_at), true)}</span></div>
+          <div class="bt">${val}</div></div>`;
+      }).join("")}</div><p class="note" style="text-align:center">✓ verified = gemeten met een 10+ Hz GPS-ontvanger. Runs met meer dan 1% helling tellen niet mee.</p>`;
+    } catch (e) { if (seq === boardSeq) list.innerHTML = `<div class="card empty"><div>${esc(e.message)}</div></div>`; }
+  }
+  $("#boardMetrics").addEventListener("click", (e) => { const b = e.target.closest("[data-k]"); if (!b) return; boardMetric = b.dataset.k; $$("#boardMetrics button").forEach((x) => x.classList.toggle("on", x === b)); loadBoard(); });
+  $("#boardScope").addEventListener("click", (e) => { const b = e.target.closest("[data-s]"); if (!b) return; boardScope = b.dataset.s; $$("#boardScope button").forEach((x) => x.classList.toggle("on", x === b)); loadBoard(); });
+
+  function openFriends() {
+    openSheet(`<h2>Vrienden</h2>
+      <div class="friend-add"><input id="fq" placeholder="Zoek op username" autocomplete="off" autocapitalize="off"><button class="btn pri" id="fAdd">Toevoegen</button></div>
+      <div id="fSug" class="fsug"></div>
+      <div class="h-eyebrow">Jouw vrienden</div><div class="card rows" id="fList"><div class="row"><div class="tx"><span>Laden…</span></div></div></div>
+      <p class="note">Wie je toevoegt, staat in jouw vriendenranglijst. Zij hoeven niets te accepteren.</p>`, (b) => {
+      const list = async () => {
+        try {
+          const fr = await OL.friends();
+          $("#fList", b).innerHTML = fr.length ? fr.map((f) => `<div class="row"><div class="av sm">${esc(f.username.slice(0, 1).toUpperCase())}</div><div class="tx"><b>@${esc(f.username)}</b></div><button class="icon-btn" data-rm="${f.id}" aria-label="Verwijderen">${icon("i-trash")}</button></div>`).join("")
+            : `<div class="row"><div class="tx"><span>Nog geen vrienden. Zoek hierboven op username.</span></div></div>`;
+          $$("[data-rm]", b).forEach((x) => x.onclick = async () => { const f = fr.find((y) => y.id === x.dataset.rm); if (!confirm(`@${f.username} verwijderen uit je vrienden?`)) return; try { await OL.removeFriend(f.id); list(); if (boardScope === "friends") loadBoard(); } catch (e) { toast(e.message); } });
+        } catch (e) { $("#fList", b).innerHTML = `<div class="row"><div class="tx"><span>${esc(e.message)}</span></div></div>`; }
+      };
+      const add = async (name) => {
+        if (!name.trim()) return;
+        try { const f = await OL.addFriend(name); toast(`@${f.username} toegevoegd`); $("#fq", b).value = ""; $("#fSug", b).innerHTML = ""; list(); if (boardScope === "friends") loadBoard(); } catch (e) { toast(e.message, 3500); }
+      };
+      let t = null;
+      $("#fq", b).oninput = (e) => {
+        clearTimeout(t);
+        t = setTimeout(async () => {
+          try { const rs = await OL.searchUsers(e.target.value); $("#fSug", b).innerHTML = rs.map((r) => `<button class="chip-sug" data-u="${esc(r.username)}">@${esc(r.username)}</button>`).join(""); $$("[data-u]", b).forEach((x) => x.onclick = () => add(x.dataset.u)); } catch (err) { /* stil */ }
+        }, 250);
+      };
+      $("#fq", b).onkeydown = (e) => { if (e.key === "Enter") add(e.target.value); };
+      $("#fAdd", b).onclick = () => add($("#fq", b).value);
+      list();
+    });
+  }
+
+  function renderAccountRows() {
+    const box = $("#acctRows");
+    if (!onlineOn()) { box.innerHTML = `<div class="row">${icon("i-trophy", "i ic")}<div class="tx"><b>Online ranglijst</b><span>Wordt binnenkort gekoppeld</span></div></div>`; return; }
+    if (!OL.loggedIn) { box.innerHTML = `<button class="row" id="acctLogin">${icon("i-trophy", "i ic")}<div class="tx"><b>Inloggen of account maken</b><span>Voor de ranglijst en vrienden</span></div>${icon("i-chev", "i chev")}</button>`; $("#acctLogin").onclick = () => showTab("board"); return; }
+    box.innerHTML = `<div class="row"><div class="av sm">${esc(OL.profile.username.slice(0, 1).toUpperCase())}</div><div class="tx"><b>@${esc(OL.profile.username)}</b><span>${esc(OL.user.email || "")}</span></div></div>
+      <label class="row">${icon("i-share", "i ic")}<div class="tx"><b>Runs delen in de ranglijst</b><span>Automatisch na elke echte run</span></div><span class="switch"><input type="checkbox" id="setShare" ${S.settings.share === false ? "" : "checked"}><i></i></span></label>
+      <button class="row" id="acctOut">${icon("i-x", "i ic")}<div class="tx"><b>Uitloggen</b></div></button>
+      <button class="row" id="acctDel">${icon("i-trash", "i ic")}<div class="tx"><b>Account verwijderen</b><span>Verwijdert je account en al je online tijden</span></div></button>`;
+    $("#setShare").onchange = (e) => { S.settings.share = e.target.checked; save(); if (e.target.checked) syncRuns(); };
+    $("#acctOut").onclick = async () => { await OL.signOut().catch(() => {}); toast("Uitgelogd"); };
+    $("#acctDel").onclick = async () => {
+      if (!confirm("Account en al je online tijden definitief verwijderen? Je runs op deze telefoon blijven bewaard.")) return;
+      try { await OL.deleteAccount(); S.runs.forEach((r) => { delete r.shared; }); S.shareAsked = false; save(); toast("Account verwijderd"); } catch (e) { toast(e.message, 4000); }
+    };
+  }
+
+  if (OL) OL.on((ev) => {
+    if (ev === "recovery") {
+      openSheet(`<h2>Nieuw wachtwoord</h2><label class="field"><span>Nieuw wachtwoord</span><input id="npw" type="password" autocomplete="new-password" minlength="6"></label><button class="btn pri" id="npwGo">Opslaan</button>`, (b) => {
+        $("#npwGo", b).onclick = async () => { try { await OL.updatePassword($("#npw", b).value); toast("Wachtwoord gewijzigd"); closeSheet(); } catch (e) { toast(e.message, 4000); } };
+      });
+    }
+    if (OL.loggedIn && !S.shareAsked) { // eerste keer ingelogd op deze telefoon: eerdere runs ook delen?
+      S.shareAsked = true;
+      const n = S.runs.filter((r) => shareable(r) && r.shared !== "ok").length;
+      if (n && !confirm(`Je hebt ${n} eerdere run${n > 1 ? "s" : ""} op deze telefoon. Ook die in de ranglijst zetten?`)) S.shareFrom = Date.now();
+      save();
+    }
+    if ($("#v-board").classList.contains("active")) renderBoard();
+    if ($("#v-settings").classList.contains("active")) renderAccountRows();
+    syncRuns();
+  });
+  window.addEventListener("online", () => syncRuns());
 
   // ================= installeren als app =================
   const isStandalone = () => matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone === true;
@@ -1827,6 +2012,10 @@
   if (!isStandalone()) setTimeout(() => { $("#installBar").hidden = false; }, 1200);
 
   // ================= start =================
+  if (onlineOn()) { // alleen verbinden als er op deze telefoon al eens is ingelogd; anders pas bij het tabblad Ranglijst
+    let had = false; try { had = !!localStorage.getItem("screamtime-auth"); } catch (e) { /* geen opslag */ }
+    if (had) OL.init().catch(() => {});
+  }
   if (document.fonts) document.fonts.ready.then(() => { if ($("#v-settings").classList.contains("active")) renderSettings(); });
   renderAll();
   sizeGauge();
