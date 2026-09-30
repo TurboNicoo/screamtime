@@ -137,6 +137,55 @@ main{flex:1;padding:0 16px calc(96px + var(--safe-b))}
 .friend-add .btn{width:auto}
 .fsug{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .chip-sug{height:36px;padding:0 12px;border-radius:10px;background:rgba(162,56,255,.14);border:1px solid rgba(162,56,255,.4);font-weight:700;font-size:13.5px;color:#fff}
+/* ---------- intro (3D) ---------- */
+.intro{position:fixed;inset:0;z-index:95;background:#050309;overflow:hidden;perspective:900px;display:flex;flex-direction:column}
+.intro[hidden]{display:none}
+.intro canvas{position:absolute;inset:0;width:100%;height:100%}
+.i-flash{position:absolute;inset:0;background:radial-gradient(circle at 50% 45%,#fff,#ffd2b8 30%,rgba(255,47,120,.6) 60%,transparent 80%);opacity:0;pointer-events:none;z-index:3}
+.intro.s-flash .i-flash{animation:iflash .7s ease-out forwards}
+@keyframes iflash{0%{opacity:0}15%{opacity:1}100%{opacity:0}}
+.i-tree{position:absolute;left:50%;top:22%;transform:translateX(-50%);display:flex;gap:14px;z-index:2;transition:opacity .4s}
+.i-tree i{width:18px;height:18px;border-radius:50%;background:#1d1329;border:1px solid rgba(255,255,255,.08)}
+.i-tree i.a{background:var(--amber);box-shadow:0 0 20px var(--amber),0 0 50px rgba(255,176,32,.5)}
+.i-tree i.g{background:var(--ok);box-shadow:0 0 20px var(--ok),0 0 60px rgba(51,209,122,.6)}
+.i-speed{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;z-index:2;opacity:0;transition:opacity .3s}
+.intro.s-warp .i-speed{opacity:1}
+.i-speed b{display:block;font-family:var(--display);font-weight:400;font-size:clamp(90px,30vw,170px);line-height:.9;color:#fff;text-shadow:0 0 30px rgba(255,47,120,.9),0 0 80px rgba(162,56,255,.6);font-variant-numeric:tabular-nums}
+.i-speed span{font:800 12px 'Inter';letter-spacing:.5em;color:#ffc2a3}
+.intro.s-logo .i-speed,.intro.s-logo .i-tree{opacity:0}
+.i-stage{position:relative;z-index:4;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:calc(20px + var(--safe-t)) 20px calc(20px + var(--safe-b));transform-style:preserve-3d}
+.i-logo{display:flex;flex-direction:column;align-items:center;opacity:0;transform:translateZ(-1400px) rotateX(55deg) rotateZ(-8deg);transform-style:preserve-3d}
+.intro.s-logo .i-logo{opacity:1;transform:translateZ(0) rotateX(0) rotateZ(0);transition:transform 1.1s cubic-bezier(.16,1,.3,1),opacity .35s}
+.i-mark{width:118px;height:118px;transform-style:preserve-3d}
+.i-mark svg{width:100%;height:100%;filter:drop-shadow(0 0 24px rgba(255,47,120,.8)) drop-shadow(0 0 60px rgba(162,56,255,.5))}
+.intro.s-logo .i-mark{animation:ispin 1.4s cubic-bezier(.2,.8,.2,1)}
+@keyframes ispin{from{transform:rotateY(-540deg) scale(.4)}to{transform:rotateY(0) scale(1)}}
+.i-word{text-align:center;margin-top:14px}
+.i-word small{display:block;font:800 11px 'Inter';letter-spacing:.5em;color:#cdbfe3;margin-left:.5em}
+.i-name{position:relative;font-family:var(--display);font-size:clamp(46px,14vw,74px);letter-spacing:.04em;line-height:1;color:#fff;
+  text-shadow:0 1px 0 #d9c9ef,0 2px 0 #b9a3d8,0 3px 0 #9a7fc2,0 4px 0 #7b5aa9,0 5px 0 #5c3b8c,0 6px 0 #3f2466,0 14px 24px rgba(0,0,0,.6),0 0 40px rgba(255,47,120,.35)}
+.i-name b{font-weight:400;background:linear-gradient(180deg,#ffd6b8,#ff7a3d 45%,#ff2f78 75%,#a238ff);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;filter:drop-shadow(0 6px 0 #5c1a4a) drop-shadow(0 0 22px rgba(255,47,120,.6))}
+.i-name::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.55) 50%,transparent 65%);mix-blend-mode:overlay;transform:translateX(-120%);pointer-events:none}
+.intro.s-logo .i-name::after{animation:ishine 1.6s .7s ease-in-out}
+@keyframes ishine{to{transform:translateX(120%)}}
+.i-word em{display:block;font:700 10.5px var(--mono);font-style:normal;letter-spacing:.3em;color:rgba(244,238,251,.55);margin-top:10px}
+.intro.s-login .i-logo{transform:translateZ(0) scale(.72) translateY(-10px);transition:transform .8s cubic-bezier(.16,1,.3,1)}
+.i-login{width:100%;max-width:400px;margin-top:10px;padding:18px 16px 14px;border-radius:22px;background:linear-gradient(180deg,rgba(34,21,51,.88),rgba(18,11,28,.92));border:1px solid rgba(255,47,120,.3);
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.8),0 0 60px -20px rgba(255,47,120,.5);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  transform:translateY(80px) rotateX(38deg);opacity:0;transform-origin:50% 100%}
+.i-login[hidden]{display:none}
+.intro.s-login .i-login{transform:none;opacity:1;transition:transform .9s cubic-bezier(.16,1,.3,1) .1s,opacity .5s .1s}
+.i-tabs{margin-bottom:14px}.i-login .i-tabs button{flex:1;font:700 13px 'Inter'}
+.field[hidden]{display:none}
+.i-remember{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--muted);margin:4px 2px 14px;cursor:pointer}
+.i-links{display:flex;justify-content:space-between;gap:10px;margin-top:12px}
+.linkbtn.dim{color:var(--muted)}
+.i-msg{min-height:18px;margin:10px 2px 0;font-size:13px;color:var(--amber);text-align:center}
+.i-skip{position:absolute;left:50%;bottom:calc(18px + var(--safe-b));transform:translateX(-50%);z-index:5;font:700 11px 'Inter';letter-spacing:.24em;text-transform:uppercase;color:rgba(244,238,251,.45)}
+.intro.s-login .i-skip{display:none}
+.intro.s-out{animation:iout .6s cubic-bezier(.5,0,.75,0) forwards}
+@keyframes iout{to{opacity:0;transform:scale(1.18);filter:blur(6px)}}
+@media (max-height:700px){.i-mark{width:84px;height:84px}.intro.s-login .i-logo{transform:scale(.62) translateY(-30px)}}
 /* ---------- tab bar ---------- */
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;justify-content:center;padding-bottom:var(--safe-b);
   background:rgba(12,8,20,.86);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-top:1px solid var(--line)}
@@ -390,6 +439,30 @@ canvas#fx{position:fixed;inset:0;z-index:70;pointer-events:none;width:100vw;heig
 
 <div class="splash" id="splash"><svg><use href="#logo"/></svg></div>
 
+<div class="intro" id="intro" hidden>
+  <canvas id="introFx"></canvas>
+  <div class="i-flash" id="iFlash"></div>
+  <div class="i-tree" id="iTree"><i></i><i></i><i></i><i></i></div>
+  <div class="i-speed" id="iSpeed"><b>0</b><span>KM/U</span></div>
+  <div class="i-stage">
+    <div class="i-logo" id="iLogo">
+      <div class="i-mark"><svg><use href="#logo"/></svg></div>
+      <div class="i-word"><small>STREET SCREAMER</small><div class="i-name" data-t="SCREAMTIME">SCREAM<b>TIME</b></div><em>0 – 500 KM/U LAUNCH TIMER</em></div>
+    </div>
+    <form class="i-login" id="iLogin" autocomplete="on" hidden>
+      <div class="mini-seg i-tabs" id="iTabs"><button type="button" data-t="in" class="on">Inloggen</button><button type="button" data-t="up">Account maken</button></div>
+      <label class="field" id="iUserF" hidden><span>Username</span><input id="iUser" name="username" autocomplete="nickname" maxlength="20" placeholder="bijv. StreetScreamer" autocapitalize="off"></label>
+      <label class="field"><span>E-mail</span><input id="iMail" name="email" type="email" autocomplete="username email" inputmode="email" autocapitalize="off" required></label>
+      <label class="field"><span>Wachtwoord</span><input id="iPw" name="password" type="password" autocomplete="current-password" minlength="6" required></label>
+      <label class="i-remember"><span class="switch"><input type="checkbox" id="iRemember" checked><i></i></span>Onthoud mij op dit toestel</label>
+      <button class="btn pri" id="iGo" type="submit">Inloggen</button>
+      <div class="i-links"><button type="button" class="linkbtn" id="iForgot">Wachtwoord vergeten?</button><button type="button" class="linkbtn dim" id="iNo">Zonder account verder</button></div>
+      <p class="i-msg" id="iMsg"></p>
+    </form>
+  </div>
+  <button class="i-skip" id="iSkip">Tik om over te slaan</button>
+</div>
+
 <div class="app">
   <header class="top">
     <div class="brand"><svg><use href="#logo"/></svg><div class="w"><small>STREET SCREAMER</small>SCREAM<b>TIME</b></div></div>
@@ -566,11 +639,11 @@ setTimeout(() => {
   s.innerHTML = '<div style="text-align:center;color:#f4eefb;font:15px Inter,sans-serif;padding:24px;max-width:340px"><p style="font-weight:700">ScreamTime kon niet starten</p><p style="color:#7c6d94;font-size:12px;word-break:break-word">' + (window.__bootErr || "onbekende fout") + '</p><button onclick="hardReload()" style="margin-top:10px;height:46px;padding:0 20px;border-radius:14px;border:0;background:linear-gradient(100deg,#ff7a3d,#ff2f78,#a238ff);color:#fff;font-weight:700">Opnieuw laden</button></div>';
 }, 6000);
 </script>
-<script src="config.js?v=150"></script>
-<script src="online.js?v=150"></script>
-<script src="engine.js?v=140"></script>
-<script src="sources.js?v=140"></script>
-<script src="app.js?v=140"></script>
+<script src="config.js?v=160"></script>
+<script src="online.js?v=160"></script>
+<script src="engine.js?v=160"></script>
+<script src="sources.js?v=160"></script>
+<script src="app.js?v=160"></script>
 <script>
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 </script>

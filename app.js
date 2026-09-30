@@ -1,7 +1,7 @@
 /* Screamer Launch — app (UI, meet-statemachine, gauges, resultaten). */
 (function () {
   "use strict";
-  const VERSION = "1.5.0";
+  const VERSION = "1.6.0";
   const KEY = "screamerlaunch_v1";
   const E = window.Engine, SR = window.Sources;
   const $ = (s, r = document) => r.querySelector(s);
@@ -1969,7 +1969,7 @@
       <button class="row" id="acctOut">${icon("i-x", "i ic")}<div class="tx"><b>Uitloggen</b></div></button>
       <button class="row" id="acctDel">${icon("i-trash", "i ic")}<div class="tx"><b>Account verwijderen</b><span>Verwijdert je account en al je online tijden</span></div></button>`;
     $("#setShare").onchange = (e) => { S.settings.share = e.target.checked; save(); if (e.target.checked) syncRuns(); };
-    $("#acctOut").onclick = async () => { await OL.signOut().catch(() => {}); toast("Uitgelogd"); };
+    $("#acctOut").onclick = async () => { await OL.signOut().catch(() => {}); toast("Uitgelogd"); showLoginGate(); };
     $("#acctDel").onclick = async () => {
       if (!confirm("Account en al je online tijden definitief verwijderen? Je runs op deze telefoon blijven bewaard.")) return;
       try { await OL.deleteAccount(); S.runs.forEach((r) => { delete r.shared; }); S.shareAsked = false; save(); toast("Account verwijderd"); } catch (e) { toast(e.message, 4000); }
@@ -2011,6 +2011,149 @@
   $("#installX").addEventListener("click", () => { $("#installBar").hidden = true; });
   if (!isStandalone()) setTimeout(() => { $("#installBar").hidden = false; }, 1200);
 
+  // ================= intro (3D) + inloggen bij opstarten =================
+  const INTRO = { el: $("#intro"), raf: 0, speed: 0.6, target: 0.6, onSkip: null };
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  // Neon-tunnel met perspectief: ringen en sterstrepen die op je af komen; INTRO.speed bepaalt het tempo.
+  function introFx() {
+    const cv = $("#introFx"), ctx = cv.getContext("2d"), dpr = Math.min(2, devicePixelRatio || 1);
+    const fit = () => { cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = "#050309"; ctx.fillRect(0, 0, innerWidth, innerHeight); };
+    fit(); window.addEventListener("resize", fit);
+    const DEPTH = 34, rings = [], stars = [];
+    for (let i = 0; i < 26; i++) rings.push({ z: 0.8 + i * (DEPTH / 26), rot: Math.random() * TAU });
+    const star = (any) => { const a = Math.random() * TAU, r = 0.25 + Math.random() * 2.4; return { x: Math.cos(a) * r, y: Math.sin(a) * r, z: any ? 0.5 + Math.random() * DEPTH : DEPTH }; };
+    for (let i = 0; i < 240; i++) stars.push(star(true));
+    let last = performance.now();
+    const frame = (now) => {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      INTRO.speed += (INTRO.target - INTRO.speed) * (1 - Math.exp(-dt * 3));
+      const sp = INTRO.speed, W = innerWidth, H = innerHeight, cx = W / 2, cy = H * 0.46, f = Math.min(W, H) * 0.5;
+      ctx.fillStyle = `rgba(5,3,9,${0.22 + 0.25 / (1 + sp / 6)})`; ctx.fillRect(0, 0, W, H); // bewegingsonscherpte
+      ctx.globalCompositeOperation = "lighter";
+      const heat = clamp01(sp / 26);
+      for (const r of rings) {
+        r.z -= sp * dt; if (r.z < 0.3) { r.z += DEPTH; r.rot = Math.random() * TAU; }
+        const R = (f * 1.5) / r.z, al = clamp01((DEPTH - r.z) / 8) * clamp01(r.z / 1.1);
+        const hue = (275 + (heat * 0.8 + (1 - r.z / DEPTH) * 0.35) * 105) % 360;
+        ctx.strokeStyle = `hsla(${hue},100%,${58 + heat * 10}%,${al * 0.6})`; ctx.lineWidth = Math.max(0.6, 10 / r.z);
+        ctx.beginPath();
+        for (let k = 0; k <= 8; k++) { const a = r.rot + (k / 8) * TAU; const x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+        ctx.stroke();
+      }
+      for (const s of stars) {
+        const pz = s.z; s.z -= sp * dt * 1.5;
+        if (s.z < 0.3) { Object.assign(s, star(false)); continue; }
+        const x1 = cx + (s.x / pz) * f, y1 = cy + (s.y / pz) * f, x2 = cx + (s.x / s.z) * f, y2 = cy + (s.y / s.z) * f;
+        const a = clamp01(2.2 / s.z);
+        ctx.strokeStyle = heat > 0.5 ? `rgba(255,${Math.round(200 - heat * 90)},${Math.round(150 - heat * 60)},${a})` : `rgba(${200 + heat * 110},170,255,${a})`;
+        ctx.lineWidth = Math.min(3, 1.4 / s.z + 0.4); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, f * 0.9); // gloed in het verdwijnpunt
+      g.addColorStop(0, `rgba(255,${Math.round(120 + heat * 80)},${Math.round(160 - heat * 80)},${0.1 + heat * 0.25})`); g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = "source-over";
+      INTRO.raf = requestAnimationFrame(frame);
+    };
+    cancelAnimationFrame(INTRO.raf); INTRO.raf = requestAnimationFrame(frame);
+    return () => { cancelAnimationFrame(INTRO.raf); window.removeEventListener("resize", fit); };
+  }
+  const wait = (ms) => new Promise((r) => { const t = setTimeout(r, ms); INTRO.timers.push(t); });
+  INTRO.timers = [];
+
+  // Speelt de intro. short = al ingelogd (korter), geeft een promise die klaar is als het logo staat.
+  function playIntro(short) {
+    const el = INTRO.el, tree = $$("#iTree i"), num = $("#iSpeed b");
+    return new Promise(async (resolve) => {
+      let done = false;
+      const finish = () => { if (done) return; done = true; INTRO.timers.forEach(clearTimeout); INTRO.timers = []; tree.forEach((t) => (t.className = "")); el.classList.add("s-logo"); INTRO.target = 1.2; setTimeout(resolve, 300); };
+      INTRO.onSkip = finish;
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) { finish(); return; }
+      num.textContent = "0";
+      if (!short) { // startlampen
+        for (let i = 0; i < 3; i++) { await wait(300); if (done) return; tree[i].className = "a"; }
+        await wait(300); if (done) return; tree.forEach((t, i) => (t.className = i === 3 ? "g" : ""));
+      } else $("#iTree").style.opacity = "0";
+      el.classList.add("s-warp"); INTRO.target = 26;
+      const dur = short ? 900 : 1500, t0 = performance.now();
+      const tick = () => { if (done) return; const k = clamp01((performance.now() - t0) / dur); num.textContent = Math.round(320 * (1 - Math.pow(1 - k, 2.2))); if (k < 1) requestAnimationFrame(tick); };
+      tick();
+      await wait(dur); if (done) return;
+      el.classList.add("s-flash"); INTRO.target = 1.2;
+      finish();
+      await wait(short ? 500 : 900);
+    });
+  }
+
+  function exitIntro(stopFx) {
+    const el = INTRO.el;
+    el.classList.add("s-out");
+    setTimeout(() => { el.hidden = true; el.className = "intro"; $("#iLogin").hidden = true; $("#iTree").style.opacity = ""; if (stopFx) stopFx(); sizeGauge(); requestWake(); }, 600);
+  }
+
+  let introMode = "in";
+  function showLoginForm(stopFx, msg) {
+    const el = INTRO.el, f = $("#iLogin");
+    el.classList.add("s-logo", "s-login"); f.hidden = false;
+    $("#iMsg").textContent = msg || "";
+    try { $("#iMail").value = localStorage.getItem("screamtime-last-email") || ""; } catch (e) { /* geen opslag */ }
+    $("#iRemember").checked = OL.remember;
+    const setMode = (m) => {
+      introMode = m;
+      $$("#iTabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === m));
+      $("#iUserF").hidden = m !== "up";
+      $("#iPw").setAttribute("autocomplete", m === "up" ? "new-password" : "current-password");
+      $("#iGo").textContent = m === "up" ? "Account maken" : "Inloggen";
+      $("#iForgot").style.visibility = m === "up" ? "hidden" : "visible";
+    };
+    setMode("in");
+    $$("#iTabs button").forEach((b) => b.onclick = () => setMode(b.dataset.t));
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = $("#iGo"), mail = $("#iMail").value.trim(), pw = $("#iPw").value;
+      $("#iMsg").textContent = ""; btn.disabled = true; btn.textContent = "Even geduld…";
+      try {
+        OL.setRemember($("#iRemember").checked);
+        if (introMode === "up") {
+          const r = await OL.signUp({ email: mail, password: pw, username: $("#iUser").value });
+          if (r.needsConfirm) { $("#iMsg").textContent = "Check je mail en tik op de bevestigingslink."; setMode("in"); btn.disabled = false; return; }
+        } else await OL.signIn(mail, pw);
+        try { localStorage.setItem("screamtime-last-email", mail); } catch (err) { /* geen opslag */ }
+        toast(introMode === "up" ? `Welkom bij ScreamTime, @${OL.profile ? OL.profile.username : ""}!` : `Welkom terug, @${OL.profile ? OL.profile.username : ""}`);
+        $("#iPw").value = "";
+        exitIntro(stopFx);
+      } catch (err) { $("#iMsg").textContent = err.message; }
+      btn.disabled = false; btn.textContent = introMode === "up" ? "Account maken" : "Inloggen";
+    };
+    $("#iForgot").onclick = async () => {
+      const mail = $("#iMail").value.trim();
+      if (!mail) { $("#iMsg").textContent = "Vul eerst je e-mailadres in."; return; }
+      try { await OL.resetPassword(mail); $("#iMsg").textContent = "Je krijgt een mail om een nieuw wachtwoord te kiezen."; } catch (err) { $("#iMsg").textContent = err.message; }
+    };
+    $("#iNo").onclick = () => { exitIntro(stopFx); toast("Inloggen kan later via Ranglijst of Instellingen", 3500); };
+  }
+
+  async function startIntro() {
+    const el = INTRO.el;
+    el.hidden = false; el.className = "intro";
+    $("#splash").classList.add("gone");
+    let hadSession = false;
+    try { hadSession = !!(localStorage.getItem("screamtime-auth") || sessionStorage.getItem("screamtime-auth")); } catch (e) { /* geen opslag */ }
+    const auth = onlineOn() ? Promise.race([OL.init().then(() => OL.loggedIn), new Promise((r) => setTimeout(() => r(null), 6000))]).catch(() => null) : Promise.resolve(false);
+    const stopFx = introFx();
+    await playIntro(hadSession || !onlineOn());
+    const logged = await auth;
+    if (!onlineOn() || logged) { exitIntro(stopFx); return; }
+    showLoginForm(stopFx, logged === null ? "Geen verbinding met de server — je kunt ook zonder account verder." : "");
+  }
+  // Inlogscherm opnieuw tonen (na uitloggen): zonder aftellen, met rustige tunnel op de achtergrond.
+  function showLoginGate() {
+    const el = INTRO.el;
+    el.hidden = false; el.className = "intro s-logo"; $("#iTree").style.opacity = "0";
+    INTRO.speed = INTRO.target = 1.2;
+    showLoginForm(introFx(), "");
+  }
+  INTRO.el.addEventListener("click", (e) => { if (!e.target.closest("#iLogin") && INTRO.onSkip) INTRO.onSkip(); });
+
   // ================= start =================
   if (onlineOn()) { // alleen verbinden als er op deze telefoon al eens is ingelogd; anders pas bij het tabblad Ranglijst
     let had = false; try { had = !!localStorage.getItem("screamtime-auth"); } catch (e) { /* geen opslag */ }
@@ -2021,8 +2164,7 @@
   sizeGauge();
   startSource(false);
   requestAnimationFrame(frame);
-  const hideSplash = () => $("#splash").classList.add("gone");
-  (document.fonts ? Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1200))]) : Promise.resolve()).then(() => setTimeout(hideSplash, 350));
+  startIntro().catch((e) => { console.error(e); INTRO.el.hidden = true; $("#splash").classList.add("gone"); });
   document.addEventListener("click", unlockAudio, { once: true });
 
   // alleen voor tests

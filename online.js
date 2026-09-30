@@ -10,6 +10,16 @@
   const listeners = new Set();
 
   const configured = () => !!(CFG.supabaseUrl && CFG.supabaseKey);
+
+  // "Onthoud mij": aan = sessie in localStorage (blijft bewaard), uit = sessionStorage (weg na sluiten van de app).
+  const REM = "screamtime-remember";
+  const remember = () => { try { return localStorage.getItem(REM) !== "0"; } catch (e) { return true; } };
+  const box = () => { try { return remember() ? localStorage : sessionStorage; } catch (e) { return null; } };
+  const storage = {
+    getItem: (k) => { try { return box().getItem(k); } catch (e) { return null; } },
+    setItem: (k, v) => { try { box().setItem(k, v); } catch (e) { /* vol of geblokkeerd */ } },
+    removeItem: (k) => { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch (e) { /* geblokkeerd */ } },
+  };
   const emit = (e) => listeners.forEach((f) => { try { f(e); } catch (err) { console.error(err); } });
 
   function loadLib() {
@@ -53,7 +63,7 @@
     ready = (async () => {
       await loadLib();
       sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: "screamtime-auth" },
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: "screamtime-auth", storage },
       });
       const { data } = await sb.auth.getSession();
       session = data.session;
@@ -90,6 +100,14 @@
     get user() { return session ? session.user : null; },
     get profile() { return profile; },
     get loggedIn() { return !!(session && profile); },
+    get remember() { return remember(); },
+    setRemember(on) {
+      try {
+        const k = "screamtime-auth", from = on ? sessionStorage : localStorage, to = on ? localStorage : sessionStorage;
+        localStorage.setItem(REM, on ? "1" : "0");
+        const v = from.getItem(k); if (v != null) { to.setItem(k, v); from.removeItem(k); }
+      } catch (e) { /* opslag geblokkeerd */ }
+    },
     minSplitTime,
 
     async signUp({ email, password, username }) {
